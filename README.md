@@ -1,59 +1,35 @@
 # nummer12-family-ui
 
-Simplified family web UI for tablet use on Raspberry Pi.
+Home UI for family with nummer12 chat + Home Assistant lights/energy.
 
-## What it does
-- Big touch buttons for room lights
-- Quick actions (example: all lights off)
-- Basic energy cards
-- Uses Home Assistant API via backend (token stays server-side)
+## Features
+- Home UI: **nummer12**
+- Status indicators: **HA connected**, **nummer12 connected**
+- Chat interface to talk to nummer12 (proxied to Raspberry Pi `192.168.178.105`)
+- Access Lights: lists all available lights from Home Assistant
+- Access Energy
+- Calendar placeholder
 
-## 1) Setup
+## Run
 ```bash
 cd /Users/openmac/.openclaw/workspace/nummer12-family-ui
 npm install
 cp .env.example .env
 ```
 
-Edit `.env` and set:
+Set in `.env`:
 - `HA_BASE_URL`
 - `HA_TOKEN`
+- optional override for chat backend:
+  - `NUMMER12_BASE_URL`
+  - `NUMMER12_API_PATH`
+  - `NUMMER12_API_KEY`
 
-## 2) Run
+Start:
 ```bash
 npm start
 ```
 
-Open on tablet:
-- `http://192.168.178.105:8080`
-
-## 3) Configure dashboard entities/actions
-Edit:
-- `config/dashboard.json`
-
-## Optional: run on boot (systemd)
-Create `/etc/systemd/system/nummer12-family-ui.service`:
-```ini
-[Unit]
-Description=nummer12 family UI
-After=network.target
-
-[Service]
-Type=simple
-User=pi
-WorkingDirectory=/Users/openmac/.openclaw/workspace/nummer12-family-ui
-Environment=NODE_ENV=production
-ExecStart=/usr/bin/node server.js
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Then:
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now nummer12-family-ui
-sudo systemctl status nummer12-family-ui
-```
+Open:
+- local: `http://127.0.0.1:8080`
+- on Raspberry Pi LAN: `http://192.168.178.105:8080`

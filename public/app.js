@@ -1,36 +1,27 @@
 const el = {
-  title: document.getElementById("title"),
-  clock: document.getElementById("clock"),
-  actions: document.getElementById("actions"),
-  rooms: document.getElementById("rooms"),
-  info: document.getElementById("info"),
-  refresh: document.getElementById("refresh"),
-  updated: document.getElementById("updated"),
   haDot: document.getElementById("ha-dot"),
-  haText: document.getElementById("ha-text")
+  nummer12Dot: document.getElementById("nummer12-dot"),
+  haStatus: document.getElementById("ha-status"),
+  nummer12Status: document.getElementById("nummer12-status"),
+  lightsGrid: document.getElementById("lights-grid"),
+  energyGrid: document.getElementById("energy-grid"),
+  lightsRefresh: document.getElementById("lights-refresh"),
+  chatLog: document.getElementById("chat-log"),
+  chatForm: document.getElementById("chat-form"),
+  chatInput: document.getElementById("chat-input")
 };
 
-function updateClock() {
-  const now = new Date();
-  el.clock.textContent = now.toLocaleString("de-DE", {
-    weekday: "short",
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+function setConnectionStatus(dotEl, textEl, baseText, ok) {
+  dotEl.className = `dot ${ok ? "ok" : "bad"}`;
+  textEl.lastChild.textContent = `${baseText}: ${ok ? "connected" : "not connected"}`;
 }
 
-async function loadHealth() {
-  try {
-    const res = await fetch("/api/health", { cache: "no-store" });
-    if (!res.ok) throw new Error("HA down");
-    el.haDot.className = "dot ok";
-    el.haText.textContent = "HA: online";
-  } catch {
-    el.haDot.className = "dot bad";
-    el.haText.textContent = "HA: offline";
-  }
+function appendMessage(role, text) {
+  const node = document.createElement("div");
+  node.className = `msg ${role}`;
+  node.textContent = text;
+  el.chatLog.appendChild(node);
+  el.chatLog.scrollTop = el.chatLog.scrollHeight;
 }
 
 async function post(url, payload) {
@@ -39,84 +30,106 @@ async function post(url, payload) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload)
   });
+
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
     throw new Error(data.error || "Request failed");
   }
+  return data;
 }
 
-function stateOn(state) {
+async function loadStatuses() {
+  const [ha, nummer12] = await Promise.all([
+    fetch("/api/health", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ ok: false })),
+    fetch("/api/nummer12/health", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ ok: false, connected: false }))
+  ]);
+
+  setConnectionStatus(el.haDot, el.haStatus, "HA", Boolean(ha.ok));
+  setConnectionStatus(el.nummer12Dot, el.nummer12Status, "nummer12", Boolean(nummer12.connected));
+}
+
+function isOn(state) {
   return state === "on" || state === "open";
 }
 
 async function loadDashboard() {
-  const res = await fetch("/api/dashboard", { cache: "no-store" });
-  const data = await res.json();
+  const data = await fetch("/api/dashboard", { cache: "no-store" }).then((r) => r.json());
 
-  el.title.textContent = data.title || "nummer12 family";
-  el.updated.textContent = `Zuletzt: ${new Date(data.ts).toLocaleTimeString("de-DE")}`;
-
-  el.actions.innerHTML = "";
-  for (const action of data.config.quickActions || []) {
-    const btn = document.createElement("button");
-    btn.className = "btn";
-    btn.textContent = action.label;
-    btn.onclick = async () => {
-      btn.disabled = true;
-      try {
-        await post("/api/action", { label: action.label });
-        await loadDashboard();
-      } catch (e) {
-        alert(e.message || "Aktion fehlgeschlagen");
-      } finally {
-        btn.disabled = false;
-      }
-    };
-    el.actions.appendChild(btn);
-  }
-
-  el.rooms.innerHTML = "";
+  el.lightsGrid.innerHTML = "";
   for (const room of data.config.rooms || []) {
-    const stateObj = data.states[room.entity_id];
-    const state = stateObj?.state || "unavailable";
+    const value = data.states[room.entity_id]?.state || "unavailable";
     const btn = document.createElement("button");
-    btn.className = `btn ${stateOn(state) ? "" : "off"}`;
-    btn.textContent = `${room.label}\n${state}`;
+    btn.className = `light-btn ${isOn(value) ? "on" : ""}`;
+    btn.innerHTML = `<strong>${room.label}</strong><br>${value}`;
+
     btn.onclick = async () => {
       btn.disabled = true;
       try {
         await post("/api/toggle", { entity_id: room.entity_id });
         await loadDashboard();
-      } catch (e) {
-        alert(e.message || "Toggle fehlgeschlagen");
+      } catch (error) {
+        alert(error.message || "Toggle failed");
       } finally {
         btn.disabled = false;
       }
     };
-    el.rooms.appendChild(btn);
+
+    el.lightsGrid.appendChild(btn);
   }
 
-  el.info.innerHTML = "";
+  el.energyGrid.innerHTML = "";
   for (const item of data.config.info || []) {
-    const stateObj = data.states[item.entity_id];
-    const value = stateObj?.state ?? "-";
+    const state = data.states[item.entity_id]?.state ?? "-";
     const tile = document.createElement("div");
     tile.className = "tile";
-    tile.innerHTML = `<div class="name">${item.label}</div><div class="value">${value}${item.unit ? ` ${item.unit}` : ""}</div>`;
-    el.info.appendChild(tile);
+    tile.innerHTML = `<div class="label">${item.label}</div><div class="value">${state}${item.unit ? ` ${item.unit}` : ""}</div>`;
+    el.energyGrid.appendChild(tile);
   }
 }
 
-async function refreshAll() {
-  await Promise.allSettled([loadHealth(), loadDashboard()]);
+function initNavButtons() {
+  const buttons = document.querySelectorAll(".nav-btn");
+  buttons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const target = button.getAttribute("data-target");
+      if (!target) return;
+      document.getElementById(target)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
 }
 
-el.refresh.onclick = refreshAll;
-updateClock();
-setInterval(updateClock, 30_000);
-refreshAll();
-setInterval(() => {
-  if (!document.hidden) {
-    refreshAll();
-  }
-}, 15_000);
+function initChat() {
+  appendMessage("bot", "Hi, I am nummer12. How can I help?");
+
+  el.chatForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = el.chatInput.value.trim();
+    if (!message) return;
+
+    appendMessage("user", message);
+    el.chatInput.value = "";
+
+    try {
+      const data = await post("/api/nummer12/chat", { message });
+      appendMessage("bot", data.reply || "No reply.");
+    } catch (error) {
+      appendMessage("bot", `Error: ${error.message || "Chat failed"}`);
+    }
+  });
+}
+
+async function init() {
+  initNavButtons();
+  initChat();
+  el.lightsRefresh.onclick = () => loadDashboard();
+  await Promise.all([loadStatuses(), loadDashboard()]);
+
+  setInterval(() => {
+    if (!document.hidden) {
+      loadStatuses();
+      loadDashboard();
+    }
+  }, 15000);
+}
+
+init();

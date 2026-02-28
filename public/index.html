@@ -1,43 +1,58 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>nummer12 family</title>
+    <title>Home UI - nummer12</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div class="app">
-      <header class="topbar card">
+      <header class="card topbar">
         <div>
-          <h1 id="title">nummer12 family</h1>
-          <p id="clock">--:--</p>
+          <p class="kicker">Home UI</p>
+          <h1>nummer12</h1>
         </div>
-        <div class="status-wrap">
-          <span id="ha-dot" class="dot"></span>
-          <span id="ha-text">HA: checking</span>
+        <div class="status-row">
+          <span class="status-pill" id="ha-status"><i class="dot" id="ha-dot"></i>HA connected</span>
+          <span class="status-pill" id="nummer12-status"><i class="dot" id="nummer12-dot"></i>nummer12 connected</span>
         </div>
       </header>
 
-      <section class="card">
-        <h2>Schnellaktionen</h2>
-        <div id="actions" class="grid two"></div>
+      <section class="card nav-card">
+        <button class="nav-btn" data-target="lights-section">Access Lights</button>
+        <button class="nav-btn" data-target="energy-section">Access Energy</button>
+        <button class="nav-btn" data-target="calendar-section">Calendar</button>
       </section>
 
-      <section class="card">
-        <h2>Raume</h2>
-        <div id="rooms" class="grid two"></div>
+      <section class="card" id="chat-section">
+        <h2>Talk to nummer12</h2>
+        <div id="chat-log" class="chat-log"></div>
+        <form id="chat-form" class="chat-form">
+          <input id="chat-input" type="text" autocomplete="off" placeholder="Ask nummer12..." />
+          <button type="submit">Send</button>
+        </form>
       </section>
 
-      <section class="card">
-        <h2>Energie</h2>
-        <div id="info" class="grid three"></div>
+      <section class="card" id="lights-section">
+        <div class="section-head">
+          <h2>Lights (All Available)</h2>
+          <button id="lights-refresh" class="secondary">Refresh</button>
+        </div>
+        <div id="lights-grid" class="grid two"></div>
       </section>
 
-      <footer class="foot">
-        <button id="refresh" class="btn secondary">Aktualisieren</button>
-        <span id="updated">Zuletzt: -</span>
-      </footer>
+      <section class="card" id="energy-section">
+        <div class="section-head">
+          <h2>Energy</h2>
+        </div>
+        <div id="energy-grid" class="grid three"></div>
+      </section>
+
+      <section class="card" id="calendar-section">
+        <h2>Calendar</h2>
+        <div class="placeholder">Placeholder: calendar module comes next.</div>
+      </section>
     </div>
 
     <script src="/app.js" defer></script>
