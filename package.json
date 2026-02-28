@@ -1,0 +1,14 @@
+{
+  "name": "nummer12-family-ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Simple family dashboard for Raspberry Pi + tablet",
+  "scripts": {
+    "dev": "node --watch server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2"
+  }
+}

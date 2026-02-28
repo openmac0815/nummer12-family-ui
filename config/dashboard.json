@@ -1,0 +1,34 @@
+{
+  "rooms": [
+    { "label": "Wohnzimmer", "entity_id": "switch.licht_wohnzimmer" },
+    { "label": "Esstisch", "entity_id": "switch.licht_esstisch" },
+    { "label": "Kuche", "entity_id": "switch.licht_kuche" },
+    { "label": "Schlafzimmer", "entity_id": "switch.licht_schlafzimmer" },
+    { "label": "Treppenhaus", "entity_id": "switch.licht_treppenhaus" }
+  ],
+  "info": [
+    { "label": "Hausverbrauch", "entity_id": "sensor.solarnet_power_load_consumed", "unit": "W" },
+    { "label": "PV", "entity_id": "sensor.solarnet_power_photovoltaics", "unit": "W" },
+    { "label": "Batterie", "entity_id": "sensor.byd_battery_box_premium_hv_state_of_charge", "unit": "%" }
+  ],
+  "quickActions": [
+    {
+      "label": "Alle Lichter AUS",
+      "domain": "homeassistant",
+      "service": "turn_off",
+      "data": { "entity_id": "group.all_lights" }
+    },
+    {
+      "label": "Lichter EG AN",
+      "domain": "homeassistant",
+      "service": "turn_on",
+      "data": {
+        "entity_id": [
+          "switch.licht_wohnzimmer",
+          "switch.licht_esstisch",
+          "switch.licht_kuche"
+        ]
+      }
+    }
+  ]
+}
