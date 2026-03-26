@@ -1,0 +1,8 @@
+{
+  "members": [
+    { "id": "m", "name": "M", "emoji": "💼", "color": "#C4845A" },
+    { "id": "sara", "name": "Sara", "emoji": "🎨", "color": "#7E9EB5" },
+    { "id": "lena", "name": "Lena", "emoji": "🎻", "color": "#6B7B5E" },
+    { "id": "jonas", "name": "Jonas", "emoji": "⚽️", "color": "#D4B896" }
+  ]
+}

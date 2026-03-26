@@ -20,6 +20,7 @@ const GOOGLE_CALENDAR_ID   = process.env.GOOGLE_CALENDAR_ID   || "primary";
 
 const DATA_DIR        = path.join(__dirname, "data");
 const DASHBOARD_FILE  = path.join(__dirname, "config", "dashboard.json");
+const FAMILY_FILE     = path.join(__dirname, "config", "family.json");
 const SHOPPING_FILE   = path.join(DATA_DIR, "shopping.json");
 const NOTES_FILE      = path.join(DATA_DIR, "notes.json");
 const TOKENS_FILE     = path.join(DATA_DIR, "google_tokens.json");
@@ -43,6 +44,10 @@ function writeJson(file, data) {
 
 function readDashboardConfig() {
   return readJson(DASHBOARD_FILE, { rooms: [], info: [], quickActions: [] });
+}
+
+function readFamilyConfig() {
+  return readJson(FAMILY_FILE, { members: [] });
 }
 
 function mustHaveHAEnv() {
@@ -371,6 +376,11 @@ app.post("/api/nummer12/chat", async (req, res) => {
   } catch {
     return res.status(502).json({ ok: false, error: "nummer12 backend request failed" });
   }
+});
+
+app.get("/api/family", (_req, res) => {
+  const family = readFamilyConfig();
+  res.json({ members: family.members || [] });
 });
 
 app.get("/api/dashboard", async (_req, res) => {
