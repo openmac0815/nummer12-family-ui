@@ -1,8 +1,9 @@
 {
   "members": [
-    { "id": "m", "name": "M", "emoji": "💼", "color": "#C4845A" },
-    { "id": "sara", "name": "Sara", "emoji": "🎨", "color": "#7E9EB5" },
-    { "id": "lena", "name": "Lena", "emoji": "🎻", "color": "#6B7B5E" },
-    { "id": "jonas", "name": "Jonas", "emoji": "⚽️", "color": "#D4B896" }
+    { "id": "nina", "name": "Nina", "emoji": "🌿", "color": "#d46f5c" },
+    { "id": "martin", "name": "Martin", "emoji": "🗞️", "color": "#4f7ea8" },
+    { "id": "olivia", "name": "Olivia", "emoji": "🎨", "color": "#db9a3f" },
+    { "id": "yuna", "name": "Yuna", "emoji": "🌈", "color": "#4ca99a" },
+    { "id": "selma", "name": "Selma", "emoji": "🌸", "color": "#c77aa0" }
   ]
 }

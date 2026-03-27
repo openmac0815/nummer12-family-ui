@@ -1,0 +1,39 @@
+{
+  "weekdayMeals": {
+    "0": [
+      { "title": "Ofengemuse mit Feta", "notes": "Leicht und entspannt fur Sonntag." },
+      { "title": "Tomatensuppe mit Grilled Cheese", "notes": "Schnell, warm, kinderfreundlich." },
+      { "title": "Pasta al Limone", "notes": "Wenig Aufwand, frischer Geschmack." }
+    ],
+    "1": [
+      { "title": "Hahnchen-Reis-Pfanne", "notes": "Montagstauglich und gut vorzubereiten." },
+      { "title": "Gemuse-Curry mit Reis", "notes": "Passt gut fur Reste am Dienstag." },
+      { "title": "Kartoffelauflauf", "notes": "Familienessen ohne viel Stress." }
+    ],
+    "2": [
+      { "title": "Tacos mit Bohnen und Salat", "notes": "Jeder stellt sich sein Essen selbst zusammen." },
+      { "title": "Fisch mit Ofenkartoffeln", "notes": "Kurze Vorbereitung, viel Geschmack." },
+      { "title": "Gnocchi mit Tomate und Mozzarella", "notes": "Schnell nach Schule und Arbeit." }
+    ],
+    "3": [
+      { "title": "Linsendal mit Naan", "notes": "Warm, einfach, gut fur Wochenmitte." },
+      { "title": "Burger-Abend", "notes": "Kann gemeinsam vorbereitet werden." },
+      { "title": "Quiche mit Salat", "notes": "Lauft gut auch mit Resten." }
+    ],
+    "4": [
+      { "title": "Risotto mit Pilzen", "notes": "Etwas gemutlicher fur Donnerstag." },
+      { "title": "Wraps mit Huhn und Gemuse", "notes": "Schnell und unkompliziert." },
+      { "title": "Kurbissuppe mit Brot", "notes": "Leichtes Abendessen." }
+    ],
+    "5": [
+      { "title": "Pizza-Abend", "notes": "Freitag darf unkompliziert sein." },
+      { "title": "Asiatische Nudelpfanne", "notes": "Schnell, bunt, beliebt." },
+      { "title": "Falafel mit Fladenbrot", "notes": "Gut zum Teilen am Tisch." }
+    ],
+    "6": [
+      { "title": "Pasta Bolognese", "notes": "Klassiker fur Samstag." },
+      { "title": "Grillteller mit Salaten", "notes": "Wenn das Wetter passt." },
+      { "title": "Lasagne", "notes": "Gut, wenn alle zuhause sind." }
+    ]
+  }
+}

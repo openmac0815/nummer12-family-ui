@@ -1,0 +1,61 @@
+{
+  "hub_account": "mainbernheimerstr12@gmail.com",
+  "strategy": "hub-and-member-calendars",
+  "sources": [
+    {
+      "id": "385fbc4f2b3801208e56b4f88228fe71dd96f3098205bc2166aa7692cba28e90@group.calendar.google.com",
+      "label": "alle",
+      "member_id": "family",
+      "color": "#6f9b62",
+      "enabled": true,
+      "visible": true,
+      "writable": true,
+      "accepts_invites": true
+    },
+    {
+      "id": "6f4f3c8c7cfcfd7f0bf577f86d09106f6d51227f3964d15d44f4fc3887425d0c@group.calendar.google.com",
+      "label": "Nina",
+      "member_id": "nina",
+      "color": "#d46f5c",
+      "enabled": true,
+      "visible": true,
+      "writable": true
+    },
+    {
+      "id": "454f246ff323c8dbb1d51da2115c0d30bc504cbe878ce804db26f7f75d63bbd4@group.calendar.google.com",
+      "label": "Martin",
+      "member_id": "martin",
+      "color": "#4f7ea8",
+      "enabled": true,
+      "visible": true,
+      "writable": true
+    },
+    {
+      "id": "dfd08d6dfa0c89bf9ea454f9727c62f91cf435a6e0abb52a850295df7194d68b@group.calendar.google.com",
+      "label": "Olivia",
+      "member_id": "olivia",
+      "color": "#db9a3f",
+      "enabled": true,
+      "visible": true,
+      "writable": true
+    },
+    {
+      "id": "32ccc91f4635dd4106d9c92b7383d808783dc0fab10a97ec98ecf06da2d70e91@group.calendar.google.com",
+      "label": "Yuna",
+      "member_id": "yuna",
+      "color": "#4ca99a",
+      "enabled": true,
+      "visible": true,
+      "writable": true
+    },
+    {
+      "id": "660e6087dfa32505600b4991b11cb02d6ed047110957e40308dd58628b370e49@group.calendar.google.com",
+      "label": "Selma",
+      "member_id": "selma",
+      "color": "#c77aa0",
+      "enabled": true,
+      "visible": true,
+      "writable": true
+    }
+  ]
+}

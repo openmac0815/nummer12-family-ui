@@ -9,9 +9,9 @@ const HOST = process.env.HOST || "0.0.0.0";
 const TITLE = process.env.TITLE || "nummer12";
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://192.168.178.64:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.1:8b";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:3b";
 const OLLAMA_MODEL_FALLBACK_TO_FIRST = process.env.OLLAMA_MODEL_FALLBACK_TO_FIRST !== "false";
-const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS || 12000);
+const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS || 90000);
 
 const FALLBACK_API_BASE_URL = process.env.FALLBACK_API_BASE_URL || "https://api.openai.com/v1";
 const FALLBACK_API_PATH = process.env.FALLBACK_API_PATH || "/chat/completions";
@@ -24,14 +24,23 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/auth/google/callback`;
 const GOOGLE_CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || "primary";
 
-const DATA_DIR = path.join(__dirname, "data");
+const DATA_ROOT = process.env.DATA_ROOT || path.join(__dirname, "data");
+const STATE_ROOT = process.env.STATE_ROOT || path.join(DATA_ROOT, "state");
+const MEDIA_ROOT = process.env.MEDIA_ROOT || path.join(DATA_ROOT, "media");
+const ARCHIVE_ROOT = process.env.ARCHIVE_ROOT || path.join(DATA_ROOT, "archive");
+const PROFILES_ROOT = process.env.PROFILES_ROOT || path.join(DATA_ROOT, "profiles");
+const CACHE_ROOT = process.env.CACHE_ROOT || path.join(DATA_ROOT, "cache");
 const DASHBOARD_FILE = path.join(__dirname, "config", "dashboard.json");
 const FAMILY_FILE = path.join(__dirname, "config", "family.json");
-const SHOPPING_FILE = path.join(DATA_DIR, "shopping.json");
-const NOTES_FILE = path.join(DATA_DIR, "notes.json");
-const TOKENS_FILE = path.join(DATA_DIR, "google_tokens.json");
+const MEAL_PLAN_FILE = path.join(__dirname, "config", "meal-plan.json");
+const CALENDAR_MAP_FILE = path.join(__dirname, "config", "calendar-map.json");
+const SHOPPING_FILE = path.join(STATE_ROOT, "shopping.json");
+const NOTES_FILE = path.join(STATE_ROOT, "notes.json");
+const TOKENS_FILE = path.join(STATE_ROOT, "google_tokens.json");
 
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+[DATA_ROOT, STATE_ROOT, MEDIA_ROOT, ARCHIVE_ROOT, PROFILES_ROOT, CACHE_ROOT].forEach((dir) => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+});
 
 app.use(express.json({ limit: "300kb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -54,6 +63,47 @@ function readDashboardConfig() {
 
 function readFamilyConfig() {
   return readJson(FAMILY_FILE, { members: [] });
+}
+
+function readMealPlanConfig() {
+  return readJson(MEAL_PLAN_FILE, { weekdayMeals: {} });
+}
+
+function readCalendarMapConfig() {
+  return readJson(CALENDAR_MAP_FILE, {
+    hub_account: "mainbernhheimerstrasse12@gmail.com",
+    strategy: "hub-and-member-calendars",
+    sources: [
+      {
+        id: GOOGLE_CALENDAR_ID || "primary",
+        label: "Familie",
+        member_id: "family",
+        color: "#6f9b62",
+        enabled: true,
+        visible: true,
+        writable: true,
+        accepts_invites: true
+      }
+    ]
+  });
+}
+
+function getCalendarSources() {
+  const family = readFamilyConfig();
+  const familyById = new Map((family.members || []).map((member) => [member.id, member]));
+  const config = readCalendarMapConfig();
+
+  return (config.sources || [])
+    .filter((source) => source && source.id && source.enabled !== false && source.visible !== false)
+    .map((source) => {
+      const member = source.member_id ? familyById.get(source.member_id) : null;
+      return {
+        ...source,
+        label: source.label || member?.name || source.id,
+        member_name: source.member_id === "family" ? "Familie" : (member?.name || null),
+        color: source.color || member?.color || (source.member_id === "family" ? "#6f9b62" : null)
+      };
+    });
 }
 
 function mustHaveHAEnv() {
@@ -264,6 +314,29 @@ function isLightEntity(state) {
   return false;
 }
 
+function isShadeEntity(state) {
+  if (!state?.entity_id) return false;
+  const id = String(state.entity_id).toLowerCase();
+  const friendly = String(state.attributes?.friendly_name || "").toLowerCase();
+  return id.startsWith("cover.") || id.includes("jalo") || id.includes("shutter") || id.includes("rollladen") || friendly.includes("jalou") || friendly.includes("rollladen") || friendly.includes("shutter");
+}
+
+function areaForEntity(entity) {
+  const id = String(entity?.entity_id || "").toLowerCase();
+  const friendly = String(entity?.attributes?.friendly_name || entity?.label || "").toLowerCase();
+  const haystack = `${id} ${friendly}`;
+
+  if (haystack.includes("garten") || haystack.includes("terrasse") || haystack.includes("balkon") || haystack.includes("aussen") || haystack.includes("außen") || haystack.includes("outdoor")) {
+    return "aussen";
+  }
+
+  if (haystack.includes("schlaf") || haystack.includes("kinder") || haystack.includes("bad og") || haystack.includes("oben") || haystack.includes("og")) {
+    return "og";
+  }
+
+  return "eg";
+}
+
 let googleTokens = readJson(TOKENS_FILE, null);
 
 function getGoogleAuthUrl() {
@@ -351,19 +424,83 @@ app.get("/auth/google/status", (_req, res) => {
   res.json({ connected: !!googleTokens, hasClientId: !!GOOGLE_CLIENT_ID });
 });
 
+app.get("/api/calendar/config", (_req, res) => {
+  const config = readCalendarMapConfig();
+  res.json({
+    ok: true,
+    hub_account: config.hub_account || "",
+    strategy: config.strategy || "hub-and-member-calendars",
+    sources: getCalendarSources()
+  });
+});
+
+app.get("/api/calendar/calendars", async (_req, res) => {
+  try {
+    const data = await gcalFetch("/users/me/calendarList");
+    const calendars = Array.isArray(data.items)
+      ? data.items.map((item) => ({
+          id: item.id,
+          summary: item.summary,
+          primary: Boolean(item.primary),
+          selected: Boolean(item.selected),
+          accessRole: item.accessRole,
+          backgroundColor: item.backgroundColor || "",
+          foregroundColor: item.foregroundColor || ""
+        }))
+      : [];
+    res.json({ ok: true, calendars });
+  } catch (err) {
+    res.status(503).json({ ok: false, error: err.message, calendars: [] });
+  }
+});
+
 app.get("/api/calendar/events", async (req, res) => {
   const { timeMin, timeMax } = req.query;
   try {
-    const params = new URLSearchParams({
-      calendarId: GOOGLE_CALENDAR_ID,
-      timeMin: timeMin || new Date(Date.now() - 7 * 86400000).toISOString(),
-      timeMax: timeMax || new Date(Date.now() + 60 * 86400000).toISOString(),
-      singleEvents: "true",
-      orderBy: "startTime",
-      maxResults: "100"
+    const sources = getCalendarSources();
+    const start = timeMin || new Date(Date.now() - 7 * 86400000).toISOString();
+    const end = timeMax || new Date(Date.now() + 60 * 86400000).toISOString();
+
+    const settled = await Promise.allSettled(
+      sources.map(async (source) => {
+        const params = new URLSearchParams({
+          timeMin: start,
+          timeMax: end,
+          singleEvents: "true",
+          orderBy: "startTime",
+          maxResults: "100"
+        });
+        const data = await gcalFetch(`/calendars/${encodeURIComponent(source.id)}/events?${params}`);
+        const items = Array.isArray(data.items) ? data.items : [];
+        return items.map((item) => ({
+          ...item,
+          calendar_id: source.id,
+          calendar_label: source.label,
+          member_id: source.member_id || null,
+          member_name: source.member_name || null,
+          member_color: source.color || null,
+          writable: Boolean(source.writable)
+        }));
+      })
+    );
+
+    const events = [];
+    const errors = [];
+    for (const result of settled) {
+      if (result.status === "fulfilled") {
+        events.push(...result.value);
+      } else {
+        errors.push(result.reason?.message || "calendar fetch failed");
+      }
+    }
+
+    events.sort((a, b) => {
+      const aStart = new Date(a.start?.dateTime || a.start?.date || 0).getTime();
+      const bStart = new Date(b.start?.dateTime || b.start?.date || 0).getTime();
+      return aStart - bStart;
     });
-    const data = await gcalFetch(`/calendars/${encodeURIComponent(GOOGLE_CALENDAR_ID)}/events?${params}`);
-    res.json({ ok: true, events: data.items || [] });
+
+    res.json({ ok: true, events, errors, sources });
   } catch (err) {
     res.status(503).json({ ok: false, error: err.message, events: [] });
   }
@@ -463,6 +600,76 @@ app.post("/api/notes/:member", (req, res) => {
   res.json({ ok: true, notes: notes[member] });
 });
 
+app.get("/api/meal-plan", (_req, res) => {
+  const config = readMealPlanConfig();
+  const today = new Date();
+  const days = [];
+
+  for (let offset = 0; offset < 7; offset += 1) {
+    const day = new Date(today);
+    day.setDate(today.getDate() + offset);
+    const weekday = String(day.getDay());
+    days.push({
+      isoDate: day.toISOString().slice(0, 10),
+      weekday: day.getDay(),
+      options: config.weekdayMeals?.[weekday] || []
+    });
+  }
+
+  res.json({ ok: true, days });
+});
+
+app.get("/api/shutters", async (_req, res) => {
+  try {
+    const allStates = await haFetch("/api/states");
+    const shutters = Array.isArray(allStates)
+      ? allStates
+          .filter(isShadeEntity)
+          .map((state) => ({
+            entity_id: state.entity_id,
+            label: state.attributes?.friendly_name || state.entity_id,
+            state: state.state,
+            current_position: state.attributes?.current_position ?? null,
+            area: areaForEntity(state)
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label))
+      : [];
+
+    res.json({ ok: true, shutters });
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, error: error.message, shutters: [] });
+  }
+});
+
+app.post("/api/shutters/action", async (req, res) => {
+  const { entity_id, action } = req.body || {};
+  if (!entity_id || !action) {
+    return res.status(400).json({ ok: false, error: "entity_id and action required" });
+  }
+
+  const allowedActions = new Set(["open", "close", "stop", "toggle"]);
+  if (!allowedActions.has(action)) {
+    return res.status(400).json({ ok: false, error: "invalid action" });
+  }
+
+  try {
+    const currentState = await haFetch(`/api/states/${encodeURIComponent(entity_id)}`);
+    if (!isShadeEntity(currentState)) {
+      return res.status(403).json({ ok: false, error: "not a shutter entity" });
+    }
+
+    const serviceName = action === "open" ? "open_cover" : action === "close" ? "close_cover" : action === "stop" ? "stop_cover" : "toggle";
+    await haFetch(`/api/services/cover/${serviceName}`, {
+      method: "POST",
+      body: JSON.stringify({ entity_id })
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, error: error.message, details: error.payload || null });
+  }
+});
+
 app.get("/api/health", async (_req, res) => {
   try {
     await haFetch("/api/");
@@ -521,6 +728,35 @@ app.get("/api/family", (_req, res) => {
   res.json({ members: family.members || [] });
 });
 
+app.get("/api/media", async (_req, res) => {
+  try {
+    const allStates = await haFetch("/api/states");
+    const players = Array.isArray(allStates)
+      ? allStates
+          .filter((state) => state?.entity_id?.startsWith("media_player."))
+          .map((state) => ({
+            entity_id: state.entity_id,
+            label: state.attributes?.friendly_name || state.entity_id,
+            state: state.state,
+            area: areaForEntity(state),
+            app_name: state.attributes?.app_name || "",
+            source: state.attributes?.source || "",
+            media_title: state.attributes?.media_title || "",
+            media_artist: state.attributes?.media_artist || "",
+            volume_level: state.attributes?.volume_level ?? null,
+            is_spotify: String(state.entity_id).toLowerCase().includes("spotify")
+              || String(state.attributes?.friendly_name || "").toLowerCase().includes("spotify")
+              || String(state.attributes?.source || "").toLowerCase().includes("spotify")
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label))
+      : [];
+
+    res.json({ ok: true, players });
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, error: error.message, players: [] });
+  }
+});
+
 app.get("/api/dashboard", async (_req, res) => {
   const config = readDashboardConfig();
   let rooms = config.rooms || [];
@@ -531,7 +767,7 @@ app.get("/api/dashboard", async (_req, res) => {
     const lightStates = Array.isArray(allStates) ? allStates.filter(isLightEntity) : [];
     if (lightStates.length > 0) {
       rooms = lightStates
-        .map((s) => ({ label: s.attributes?.friendly_name || s.entity_id, entity_id: s.entity_id }))
+        .map((s) => ({ label: s.attributes?.friendly_name || s.entity_id, entity_id: s.entity_id, area: areaForEntity(s) }))
         .sort((a, b) => a.label.localeCompare(b.label));
     }
     for (const state of Array.isArray(allStates) ? allStates : []) {
