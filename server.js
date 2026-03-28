@@ -2,13 +2,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 const express = require("express");
 require("dotenv").config();
-const { readChatConfig } = require("./lib/chat/config");
-const { createChatService } = require("./lib/chat/service");
-
 const app = express();
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
 const TITLE = process.env.TITLE || "nummer12";
+const NUMMER12_RELAY_BASE_URL = process.env.NUMMER12_RELAY_BASE_URL || "http://127.0.0.1:8090";
+const NUMMER12_RELAY_API_PATH = process.env.NUMMER12_RELAY_API_PATH || "/api/chat";
+const NUMMER12_RELAY_HEALTH_PATH = process.env.NUMMER12_RELAY_HEALTH_PATH || "/api/health";
+const NUMMER12_RELAY_TIMEOUT_MS = Number(process.env.NUMMER12_RELAY_TIMEOUT_MS || 15000);
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
@@ -98,12 +99,6 @@ function validateStorageLayout() {
 
 validateStorageLayout();
 
-const chatService = createChatService({
-  config: readChatConfig(process.env),
-  archiveRoot: ARCHIVE_ROOT,
-  profilesRoot: PROFILES_ROOT
-});
-
 app.use(express.json({ limit: "300kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -142,6 +137,51 @@ function appendNdjson(file, entry) {
 
 function writeJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
+}
+
+function normalizeUrl(baseUrl, apiPath) {
+  const base = String(baseUrl || "").replace(/\/$/, "");
+  const pathPart = String(apiPath || "").startsWith("/") ? apiPath : `/${apiPath || ""}`;
+  return `${base}${pathPart}`;
+}
+
+function withTimeout(timeoutMs) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  return { controller, timeout };
+}
+
+async function relayFetchJson(apiPath, payload) {
+  const url = normalizeUrl(NUMMER12_RELAY_BASE_URL, apiPath);
+  const { controller, timeout } = withTimeout(NUMMER12_RELAY_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      method: payload ? "POST" : "GET",
+      signal: controller.signal,
+      headers: payload ? { "content-type": "application/json" } : undefined,
+      body: payload ? JSON.stringify(payload) : undefined
+    });
+
+    const text = await response.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = { ok: false, error: text || `relay error (${response.status})` };
+    }
+
+    if (!response.ok) {
+      const error = new Error(data?.error || `relay error (${response.status})`);
+      error.status = response.status;
+      error.payload = data;
+      throw error;
+    }
+
+    return data;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function readDashboardConfig() {
@@ -621,56 +661,62 @@ app.get("/api/health", async (_req, res) => {
 });
 
 app.get("/api/nummer12/health", async (_req, res) => {
-  const status = await chatService.health();
-  res.json(status);
+  try {
+    const status = await relayFetchJson(NUMMER12_RELAY_HEALTH_PATH);
+    res.json({
+      ...status,
+      relayBaseUrl: NUMMER12_RELAY_BASE_URL,
+      relayApiPath: NUMMER12_RELAY_API_PATH
+    });
+  } catch (error) {
+    res.status(error.status || 502).json({
+      ok: false,
+      connected: false,
+      activeBackend: null,
+      error: error.message,
+      relayBaseUrl: NUMMER12_RELAY_BASE_URL,
+      relayApiPath: NUMMER12_RELAY_API_PATH
+    });
+  }
 });
 
 app.post("/api/nummer12/relay", async (req, res) => {
   try {
-    const result = await chatService.chat(req.body || {});
+    const result = await relayFetchJson(NUMMER12_RELAY_API_PATH, {
+      ...(req.body || {}),
+      source: "nummer12-family-ui"
+    });
     return res.json({
-      ok: true,
+      ...result,
       relay: true,
-      reply: result.reply,
-      backend: result.backend,
-      activeBackend: result.backend,
-      preferredBackendMode: result.preferredBackendMode,
-      persona: result.persona,
-      model: result.model || null,
-      runtimeSessionId: result.runtimeSessionId || null,
-      attempts: result.attempts || []
+      relayBaseUrl: NUMMER12_RELAY_BASE_URL
     });
   } catch (error) {
     return res.status(error.status || 502).json({
       ok: false,
       relay: true,
       error: error.message,
-      attempts: error.attempts || []
+      attempts: error.payload?.attempts || []
     });
   }
 });
 
 app.post("/api/nummer12/chat", async (req, res) => {
   try {
-    const result = await chatService.chat(req.body || {});
+    const result = await relayFetchJson(NUMMER12_RELAY_API_PATH, {
+      ...(req.body || {}),
+      source: "nummer12-family-ui"
+    });
     return res.json({
-      ok: true,
-      persona: result.persona,
-      reply: result.reply,
-      backend: result.backend,
-      activeBackend: result.backend,
-      preferredBackendMode: result.preferredBackendMode,
-      model: result.model || null,
-      runtimeSessionId: result.runtimeSessionId || null,
-      modelFallbackReason: result.modelFallbackReason || null,
-      memoryLoaded: result.memoryLoaded,
-      attempts: result.attempts || []
+      ...result,
+      relayBaseUrl: NUMMER12_RELAY_BASE_URL
     });
   } catch (error) {
     return res.status(error.status || 502).json({
       ok: false,
       error: error.message,
-      persona: String(req.body?.persona || "family").toLowerCase()
+      persona: String(req.body?.persona || "family").toLowerCase(),
+      attempts: error.payload?.attempts || []
     });
   }
 });
@@ -832,11 +878,7 @@ app.post("/api/dropbox", (req, res) => {
 
 app.listen(PORT, HOST, () => {
   console.log(`${TITLE} home UI running at http://${HOST}:${PORT}`);
-  const chatConfig = readChatConfig(process.env);
-  console.log(`  nummer12 chat mode: ${chatConfig.backendMode}`);
-  console.log(`  runtime backend: ${chatConfig.runtime.baseUrl ? `${chatConfig.runtime.baseUrl}${chatConfig.runtime.apiPath}` : "not configured"}`);
-  console.log(`  ollama backend: ${chatConfig.ollama.baseUrl}`);
-  console.log(`  fallback backend: ${chatConfig.fallback.apiKey ? "enabled" : "disabled"}`);
+  console.log(`  nummer12 relay: ${NUMMER12_RELAY_BASE_URL}${NUMMER12_RELAY_API_PATH}`);
   console.log(`  durable data root: ${DATA_ROOT}`);
   console.log(`  dropbox root: ${DROPBOX_ROOT}`);
   if (!GOOGLE_CLIENT_ID) {

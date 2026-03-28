@@ -5,7 +5,11 @@
   "description": "Simple family dashboard for Raspberry Pi + tablet",
   "scripts": {
     "dev": "node --watch server.js",
-    "start": "node server.js"
+    "dev:ui": "node --watch server.js",
+    "dev:relay": "node --watch relay-server.js",
+    "start": "node server.js",
+    "start:ui": "node server.js",
+    "start:relay": "node relay-server.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

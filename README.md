@@ -41,8 +41,20 @@ The server already supports `DATA_ROOT` and optional derived overrides:
 - `PROFILES_ROOT`
 - `CACHE_ROOT`
 
-## Chat backend
-The server now uses a dedicated backend abstraction with these supported modes:
+## Chat architecture
+The system now has two separate pieces:
+
+1. **Family UI** on port `8080`
+2. **Nummer12 relay** on port `8090`
+
+The Family UI should talk to the relay over local HTTP:
+
+- `http://127.0.0.1:8090/api/chat`
+
+This keeps UI development independent from chat-runtime evolution and avoids circular self-calls.
+
+## Relay backend
+The relay uses a dedicated backend abstraction with these supported modes:
 
 - `runtime`
 - `runtime-only`
@@ -50,17 +62,13 @@ The server now uses a dedicated backend abstraction with these supported modes:
 - `ollama`
 - `fallback`
 
-Recommended production behavior:
+Recommended production behavior inside the relay:
 
 1. Real long-lived `Nummer12` runtime first
 2. Ollama as graceful local fallback
 3. OpenAI-compatible API as final fallback
 
-Default runtime target:
-
-- `http://127.0.0.1:8080/api/nummer12/relay`
-
-That target should eventually be replaced by the real always-on Nummer12 runtime on the Pi.
+The relay itself should point to the real always-on Nummer12 runtime when available. It must not point back into the Family UI.
 
 The backend is persona-aware:
 
@@ -93,7 +101,25 @@ This keeps the family personas isolated while still allowing one coherent house 
 cd /Users/openmac/.openclaw/workspace/raspberry-pi-home-ai-setup
 npm install
 cp .env.example .env
-npm start
+```
+
+Run the Family UI:
+
+```bash
+npm run start:ui
+```
+
+Run the separate relay:
+
+```bash
+npm run start:relay
+```
+
+Development mode:
+
+```bash
+npm run dev:ui
+npm run dev:relay
 ```
 
 ## Required env
@@ -101,10 +127,21 @@ npm start
 - `HA_TOKEN`
 - `DATA_ROOT` for durable runtime data on the Pi
 
-## Chat env
+## Family UI chat env
+- relay target:
+- `NUMMER12_RELAY_BASE_URL`
+- `NUMMER12_RELAY_API_PATH`
+- `NUMMER12_RELAY_HEALTH_PATH`
+- `NUMMER12_RELAY_TIMEOUT_MS`
+
+## Relay env
+- relay bind:
+- `NUMMER12_RELAY_HOST`
+- `NUMMER12_RELAY_PORT`
+- `NUMMER12_RELAY_TITLE`
 - backend selection:
 - `NUMMER12_CHAT_BACKEND_MODE`
-- runtime backend:
+- real Nummer12 runtime target:
 - `NUMMER12_RUNTIME_BASE_URL`
 - `NUMMER12_RUNTIME_API_PATH`
 - `NUMMER12_RUNTIME_API_KEY` (optional)
@@ -124,9 +161,11 @@ npm start
 
 Important:
 
-- preferred production mode is `NUMMER12_CHAT_BACKEND_MODE=runtime`
-- `NUMMER12_RUNTIME_BASE_URL` should point at the real Nummer12 runtime, not this same Family UI process
-- `/api/nummer12/health` reports which backend is actually active
+- Family UI should point to the relay, not directly to Ollama or fallback
+- preferred relay mode is `NUMMER12_CHAT_BACKEND_MODE=runtime`
+- `NUMMER12_RUNTIME_BASE_URL` should point at the real Nummer12 runtime, not the Family UI and not the relay itself
+- Family UI exposes `/api/nummer12/chat` as a proxy to the relay
+- relay health is available at `/api/health`
 - successful chats are archived per persona under `ARCHIVE_ROOT`
 
 ## Google Calendar env
@@ -166,6 +205,10 @@ Then open:
 - local: `http://127.0.0.1:8080`
 - LAN / Raspberry Pi: `http://192.168.178.105:8080`
 
+Relay health check:
+
+- `http://127.0.0.1:8090/api/health`
+
 ## Raspberry Pi setup
 
 1. Mount the USB disk at a stable location, for example:
@@ -195,6 +238,11 @@ Recommended service behavior:
 - start only after network is available
 - fail clearly if `DATA_ROOT` is missing
 - never silently fall back to random repo-local paths in production
+
+Recommended process split:
+
+- `nummer12-family-ui.service` -> `npm run start:ui`
+- `nummer12-relay.service` -> `npm run start:relay`
 
 ## OpenClaw / Nummer12 expectations
 
