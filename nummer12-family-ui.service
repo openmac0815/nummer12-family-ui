@@ -1,0 +1,17 @@
+[Unit]
+Description=Nummer12 Family UI
+After=network.target
+
+[Service]
+Type=simple
+User=nummer12
+WorkingDirectory=/home/nummer12/.openclaw/workspace/nummer12-family-ui
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+StandardOutput=append:/mnt/storage/family-ai/logs/family-ui.log
+StandardError=append:/mnt/storage/family-ai/logs/family-ui.log
+EnvironmentFile=/home/nummer12/.openclaw/workspace/nummer12-family-ui/.env
+
+[Install]
+WantedBy=multi-user.target
