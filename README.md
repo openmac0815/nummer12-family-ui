@@ -347,3 +347,50 @@ Open-source school systems worth knowing about:
 - Gibbon calendar docs: [https://docs.gibbonedu.org/modules/other/calendar](https://docs.gibbonedu.org/modules/other/calendar)
 
 They are useful as architectural references, but this repo intentionally keeps a much lighter custom family-oriented implementation.
+
+---
+
+## Pi-Deployment Stand (2026-03-28)
+
+### Laufende Services
+| Service | Port | systemd | Status |
+|---|---|---|---|
+| Family UI | 8080 | `nummer12-family-ui.service` | aktiv |
+| Relay | 8090 | `nummer12-relay.service` | aktiv |
+
+### Aktiver Chat-Pfad
+```
+Browser → Family UI :8080 → Relay :8090 → OpenRouter → claude-sonnet-4-6
+```
+
+### Relay-Service
+- Liegt lokal auf dem Pi: `/home/nummer12/.openclaw/workspace/nummer12-family-relay/`
+- Nicht im Repo, separates Verzeichnis
+- Eigene `.env` mit OpenRouter-Key
+
+### DATA_ROOT
+```
+/mnt/storage/family-ai/
+├── archive/     # Chat-Verlauf pro Persona
+├── profiles/    # Persona-Profile + Memory
+├── dropbox/     # Eingangsbox pro Familienmitglied
+├── state/       # Sessions, Reminders, Inbox, Summaries, Tasks
+├── media/       # Fotos, Uploads, Generated (tägl. Bild läuft)
+├── logs/        # relay.log, family-ui.log
+├── backups/
+└── cache/
+```
+
+### Was noch offen ist
+1. Echte OpenClaw-Session als Runtime-Backend (wichtigste Lücke)
+2. Persona-Memory befüllen
+3. Stundenpläne für Kinder eintragen
+4. Google Calendar OAuth (Redirect-URI noch localhost)
+5. OpenAI Key rotieren (war kurz sichtbar heute)
+6. Relay-Service ins Repo aufnehmen
+
+### Für Codex-Arbeit
+- Family UI: `http://192.168.178.105:8080`
+- Relay (Chat-Backend): `http://192.168.178.105:8090/api/chat`
+- Relay Health: `http://192.168.178.105:8090/api/health`
+- Relay läuft stabil, Codex kann UI unabhängig entwickeln/testen
