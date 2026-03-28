@@ -43,10 +43,12 @@ The server already supports `DATA_ROOT` and optional derived overrides:
 
 ## Chat backend
 The server now uses this order:
-1. Local Ollama first at `OLLAMA_BASE_URL`
-2. Fallback API if Ollama fails or times out
+1. External `Nummer12` / OpenClaw-compatible backend at `NUMMER12_BACKEND_URL`
+2. Local Ollama at `OLLAMA_BASE_URL`
+3. Fallback API if both fail or time out
 
 By default that means:
+- Preferred: `NUMMER12_BACKEND_URL` for the real always-on Nummer12 runtime
 - Ollama: `http://192.168.178.64:11434` using `qwen2.5:3b`
 - Timeout: `90000` ms
 - Fallback: OpenAI-compatible `/chat/completions` with `FALLBACK_API_KEY`
@@ -73,9 +75,14 @@ npm start
 - `DATA_ROOT` for durable runtime data on the Pi
 
 ## Chat env
+- preferred real Nummer12 backend:
+- `NUMMER12_BACKEND_URL`
+- `NUMMER12_API_KEY` (optional)
+- `NUMMER12_BACKEND_TIMEOUT_MS` (optional)
+- Ollama fallback:
 - `OLLAMA_BASE_URL`
 - `OLLAMA_MODEL`
-- optional fallback:
+- optional final fallback:
 - `FALLBACK_API_BASE_URL`
 - `FALLBACK_API_PATH`
 - `FALLBACK_API_KEY`

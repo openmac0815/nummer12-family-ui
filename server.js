@@ -8,6 +8,10 @@ const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
 const TITLE = process.env.TITLE || "nummer12";
 
+const NUMMER12_BACKEND_URL = process.env.NUMMER12_BACKEND_URL || "";
+const NUMMER12_API_KEY = process.env.NUMMER12_API_KEY || "";
+const NUMMER12_BACKEND_TIMEOUT_MS = Number(process.env.NUMMER12_BACKEND_TIMEOUT_MS || 45000);
+
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://192.168.178.64:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:3b";
 const OLLAMA_MODEL_FALLBACK_TO_FIRST = process.env.OLLAMA_MODEL_FALLBACK_TO_FIRST !== "false";
@@ -24,12 +28,17 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/auth/google/callback`;
 const GOOGLE_CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || "primary";
 
-const DATA_ROOT = process.env.DATA_ROOT || path.join(__dirname, "data");
+const PERSONAS = ["family", "nina", "martin", "olivia", "yuna", "selma"];
+const PRODUCTION_DATA_ROOT = "/mnt/storage/family-ai";
+const DATA_ROOT = process.env.DATA_ROOT || PRODUCTION_DATA_ROOT;
 const STATE_ROOT = process.env.STATE_ROOT || path.join(DATA_ROOT, "state");
 const MEDIA_ROOT = process.env.MEDIA_ROOT || path.join(DATA_ROOT, "media");
 const ARCHIVE_ROOT = process.env.ARCHIVE_ROOT || path.join(DATA_ROOT, "archive");
 const PROFILES_ROOT = process.env.PROFILES_ROOT || path.join(DATA_ROOT, "profiles");
 const CACHE_ROOT = process.env.CACHE_ROOT || path.join(DATA_ROOT, "cache");
+const LOG_ROOT = process.env.LOG_ROOT || path.join(DATA_ROOT, "logs");
+const BACKUP_ROOT = process.env.BACKUP_ROOT || path.join(DATA_ROOT, "backups");
+const DROPBOX_ROOT = path.join(DATA_ROOT, "dropbox");
 const DASHBOARD_FILE = path.join(__dirname, "config", "dashboard.json");
 const FAMILY_FILE = path.join(__dirname, "config", "family.json");
 const MEAL_PLAN_FILE = path.join(__dirname, "config", "meal-plan.json");
@@ -37,10 +46,70 @@ const CALENDAR_MAP_FILE = path.join(__dirname, "config", "calendar-map.json");
 const SHOPPING_FILE = path.join(STATE_ROOT, "shopping.json");
 const NOTES_FILE = path.join(STATE_ROOT, "notes.json");
 const TOKENS_FILE = path.join(STATE_ROOT, "google_tokens.json");
+const DROPBOX_INDEX_FILE = path.join(STATE_ROOT, "dropbox-index.json");
 
-[DATA_ROOT, STATE_ROOT, MEDIA_ROOT, ARCHIVE_ROOT, PROFILES_ROOT, CACHE_ROOT].forEach((dir) => {
+function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-});
+}
+
+function ensureFile(file, fallback) {
+  if (!fs.existsSync(file)) {
+    fs.writeFileSync(file, typeof fallback === "string" ? fallback : JSON.stringify(fallback, null, 2), "utf8");
+  }
+}
+
+function ensureStorageLayout() {
+  [DATA_ROOT, STATE_ROOT, MEDIA_ROOT, ARCHIVE_ROOT, PROFILES_ROOT, CACHE_ROOT, LOG_ROOT, BACKUP_ROOT, DROPBOX_ROOT].forEach(ensureDir);
+  [
+    path.join(STATE_ROOT, "sessions"),
+    path.join(STATE_ROOT, "summaries"),
+    path.join(STATE_ROOT, "reminders"),
+    path.join(STATE_ROOT, "inbox"),
+    path.join(STATE_ROOT, "health"),
+    path.join(STATE_ROOT, "tasks")
+  ].forEach(ensureDir);
+
+  PERSONAS.forEach((persona) => {
+    ensureDir(path.join(STATE_ROOT, "sessions", persona));
+    ensureDir(path.join(STATE_ROOT, "summaries", persona));
+    ensureDir(path.join(ARCHIVE_ROOT, persona));
+    ensureDir(path.join(PROFILES_ROOT, persona));
+    ensureDir(path.join(MEDIA_ROOT, persona));
+    ensureDir(path.join(MEDIA_ROOT, persona, "photos"));
+    ensureDir(path.join(MEDIA_ROOT, persona, "uploads"));
+    ensureDir(path.join(MEDIA_ROOT, persona, "generated"));
+    ensureDir(path.join(DROPBOX_ROOT, persona));
+
+    ensureFile(
+      path.join(PROFILES_ROOT, persona, "profile.json"),
+      {
+        id: persona,
+        displayName: persona === "family" ? "Familie Wurm" : persona.charAt(0).toUpperCase() + persona.slice(1),
+        visibilityDefault: persona === "family" ? "family" : `private:${persona}`,
+        mediaRoot: path.join(MEDIA_ROOT, persona),
+        dropboxRoot: path.join(DROPBOX_ROOT, persona)
+      }
+    );
+
+    ensureFile(
+      path.join(PROFILES_ROOT, persona, "memory.md"),
+      `# ${persona}\n\n- Long-term memory for ${persona}.\n`
+    );
+  });
+
+  ensureDir(path.join(DROPBOX_ROOT, "general"));
+  ensureDir(path.join(DROPBOX_ROOT, "family"));
+  ensureFile(DROPBOX_INDEX_FILE, []);
+}
+
+function validateStorageLayout() {
+  if (!fs.existsSync("/mnt/storage")) {
+    throw new Error("External storage mount /mnt/storage is missing");
+  }
+  ensureStorageLayout();
+}
+
+validateStorageLayout();
 
 app.use(express.json({ limit: "300kb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -51,6 +120,31 @@ function readJson(file, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function isValidPersona(persona) {
+  return PERSONAS.includes(String(persona || "").toLowerCase());
+}
+
+function getPersonaPaths(persona) {
+  const id = String(persona || "").toLowerCase();
+  return {
+    persona: id,
+    profileFile: path.join(PROFILES_ROOT, id, "profile.json"),
+    memoryFile: path.join(PROFILES_ROOT, id, "memory.md"),
+    archiveDir: path.join(ARCHIVE_ROOT, id),
+    sessionDir: path.join(STATE_ROOT, "sessions", id),
+    summaryDir: path.join(STATE_ROOT, "summaries", id),
+    mediaDir: path.join(MEDIA_ROOT, id),
+    uploadDir: path.join(MEDIA_ROOT, id, "uploads"),
+    photosDir: path.join(MEDIA_ROOT, id, "photos"),
+    generatedDir: path.join(MEDIA_ROOT, id, "generated"),
+    dropboxDir: path.join(DROPBOX_ROOT, id)
+  };
+}
+
+function appendNdjson(file, entry) {
+  fs.appendFileSync(file, `${JSON.stringify(entry)}\n`, "utf8");
 }
 
 function writeJson(file, data) {
@@ -161,6 +255,11 @@ function normalizeUrl(baseUrl, apiPath) {
   const base = baseUrl.replace(/\/$/, "");
   const p = apiPath.startsWith("/") ? apiPath : `/${apiPath}`;
   return `${base}${p}`;
+}
+
+function normalizeNummer12Url() {
+  if (!NUMMER12_BACKEND_URL) return "";
+  return NUMMER12_BACKEND_URL.replace(/\/$/, "");
 }
 
 function withTimeout(timeoutMs) {
@@ -282,22 +381,76 @@ async function fallbackGenerate(message) {
   }
 }
 
-async function generateNummer12Reply(message) {
+async function nummer12BackendGenerate(message, persona = "family") {
+  const url = normalizeNummer12Url();
+  if (!url) {
+    throw new Error("NUMMER12_BACKEND_URL not configured");
+  }
+
+  const { controller, timeout } = withTimeout(NUMMER12_BACKEND_TIMEOUT_MS);
   try {
-    return await ollamaGenerate(message);
-  } catch (ollamaError) {
+    const response = await fetch(url, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "content-type": "application/json",
+        ...(NUMMER12_API_KEY ? { authorization: `Bearer ${NUMMER12_API_KEY}`, "x-api-key": NUMMER12_API_KEY } : {})
+      },
+      body: JSON.stringify({ message, persona })
+    });
+
+    const text = await response.text();
+    let payload = null;
     try {
-      const fallback = await fallbackGenerate(message);
-      return {
-        ...fallback,
-        fallbackReason: ollamaError instanceof Error ? ollamaError.message : "Ollama failed"
-      };
-    } catch (fallbackError) {
-      const error = new Error(
-        `Ollama failed: ${ollamaError instanceof Error ? ollamaError.message : "unknown"}. Fallback failed: ${fallbackError instanceof Error ? fallbackError.message : "unknown"}`
-      );
-      error.status = 502;
+      payload = text ? JSON.parse(text) : null;
+    } catch {
+      payload = text;
+    }
+
+    if (!response.ok) {
+      const error = new Error(`Nummer12 backend error (${response.status})`);
+      error.status = response.status;
+      error.payload = payload;
       throw error;
+    }
+
+    const reply = extractReply(payload);
+    if (!reply) {
+      throw new Error("Nummer12 backend returned no reply");
+    }
+
+    return { reply, backend: "openclaw-backend", endpoint: url, model: payload?.model || null };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function generateNummer12Reply(message, persona = "family") {
+  try {
+    return await nummer12BackendGenerate(message, persona);
+  } catch (backendError) {
+    try {
+      const ollama = await ollamaGenerate(message);
+      return {
+        ...ollama,
+        fallbackReason: backendError instanceof Error ? backendError.message : "Nummer12 backend failed"
+      };
+    } catch (ollamaError) {
+      try {
+        const fallback = await fallbackGenerate(message);
+        return {
+          ...fallback,
+          fallbackReason: [backendError, ollamaError]
+            .map((error) => error instanceof Error ? error.message : "unknown")
+            .join(" | ")
+        };
+      } catch (fallbackError) {
+        const error = new Error(
+          `Nummer12 backend failed: ${backendError instanceof Error ? backendError.message : "unknown"}. Ollama failed: ${ollamaError instanceof Error ? ollamaError.message : "unknown"}. Fallback failed: ${fallbackError instanceof Error ? fallbackError.message : "unknown"}`
+        );
+        error.status = 502;
+        throw error;
+      }
     }
   }
 }
@@ -671,17 +824,29 @@ app.post("/api/shutters/action", async (req, res) => {
 });
 
 app.get("/api/health", async (_req, res) => {
+  const base = {
+    ok: true,
+    title: TITLE,
+    ts: new Date().toISOString(),
+    storage: {
+      dataRoot: DATA_ROOT,
+      externalMountPresent: fs.existsSync("/mnt/storage"),
+      dropboxRoot: DROPBOX_ROOT
+    },
+    personas: PERSONAS
+  };
+
   try {
     await haFetch("/api/");
-    res.json({ ok: true, title: TITLE, ts: new Date().toISOString() });
+    res.json({ ...base, homeAssistant: { ok: true } });
   } catch (error) {
-    res.status(error.status || 500).json({ ok: false, error: error.message });
+    res.status(error.status || 500).json({ ...base, ok: false, homeAssistant: { ok: false, error: error.message } });
   }
 });
 
 app.get("/api/nummer12/health", async (_req, res) => {
   try {
-    const result = await generateNummer12Reply("ping");
+    const result = await generateNummer12Reply("ping", "family");
     res.json({
       ok: true,
       connected: true,
@@ -689,13 +854,15 @@ app.get("/api/nummer12/health", async (_req, res) => {
       endpoint: result.endpoint,
       model: result.model || null,
       modelFallbackReason: result.modelFallbackReason || null,
-      fallbackReason: result.fallbackReason || null
+      fallbackReason: result.fallbackReason || null,
+      backendConfigured: Boolean(NUMMER12_BACKEND_URL)
     });
   } catch (error) {
     res.json({
       ok: false,
       connected: false,
       backend: null,
+      backendConfigured: Boolean(NUMMER12_BACKEND_URL),
       error: error.message
     });
   }
@@ -704,22 +871,53 @@ app.get("/api/nummer12/health", async (_req, res) => {
 app.post("/api/nummer12/chat", async (req, res) => {
   const message = String(req.body?.message || "").trim();
   const context = req.body?.context || "";
+  const persona = String(req.body?.persona || "family").toLowerCase();
   if (!message) return res.status(400).json({ ok: false, error: "message required" });
+  if (!isValidPersona(persona)) return res.status(400).json({ ok: false, error: "valid persona required" });
 
-  const fullMessage = context ? `[Kontext: ${context}]\n${message}` : message;
+  const personaPaths = getPersonaPaths(persona);
+  const profile = readJson(personaPaths.profileFile, { id: persona });
+  const memory = fs.existsSync(personaPaths.memoryFile) ? fs.readFileSync(personaPaths.memoryFile, "utf8") : "";
+  const archiveFile = path.join(personaPaths.archiveDir, `${new Date().toISOString().slice(0, 10)}.ndjson`);
+
+  const fullMessage = [
+    `[Persona: ${persona}]`,
+    context ? `[Kontext: ${context}]` : null,
+    `[Profil: ${JSON.stringify(profile)}]`,
+    memory ? `[Memory]\n${memory}` : null,
+    message
+  ].filter(Boolean).join("\n\n");
+
+  appendNdjson(archiveFile, {
+    timestamp: new Date().toISOString(),
+    persona,
+    role: "user",
+    message,
+    context
+  });
 
   try {
-    const result = await generateNummer12Reply(fullMessage);
+    const result = await generateNummer12Reply(fullMessage, persona);
+    appendNdjson(archiveFile, {
+      timestamp: new Date().toISOString(),
+      persona,
+      role: "assistant",
+      message: result.reply,
+      backend: result.backend,
+      model: result.model || null
+    });
     return res.json({
       ok: true,
+      persona,
       reply: result.reply,
       backend: result.backend,
+      endpoint: result.endpoint || null,
       model: result.model || null,
       modelFallbackReason: result.modelFallbackReason || null,
       fallbackReason: result.fallbackReason || null
     });
   } catch (error) {
-    return res.status(error.status || 502).json({ ok: false, error: error.message });
+    return res.status(error.status || 502).json({ ok: false, error: error.message, persona });
   }
 });
 
@@ -815,9 +1013,74 @@ app.post("/api/toggle", async (req, res) => {
   }
 });
 
+app.get("/api/storage/layout", (_req, res) => {
+  res.json({
+    ok: true,
+    dataRoot: DATA_ROOT,
+    dropboxRoot: DROPBOX_ROOT,
+    personas: PERSONAS.map((persona) => ({
+      persona,
+      paths: getPersonaPaths(persona)
+    })),
+    generalDropbox: path.join(DROPBOX_ROOT, "general"),
+    familyDropbox: path.join(DROPBOX_ROOT, "family")
+  });
+});
+
+app.get("/api/dropbox", (_req, res) => {
+  const entries = readJson(DROPBOX_INDEX_FILE, []);
+  res.json({ ok: true, dataRoot: DATA_ROOT, dropboxRoot: DROPBOX_ROOT, entries });
+});
+
+app.post("/api/dropbox", (req, res) => {
+  const target = String(req.body?.target || "general").toLowerCase();
+  const title = String(req.body?.title || "").trim();
+  const text = String(req.body?.text || "").trim();
+  const source = String(req.body?.source || "ui").trim() || "ui";
+  const allowedTargets = new Set(["general", "family", ...PERSONAS]);
+
+  if (!allowedTargets.has(target)) {
+    return res.status(400).json({ ok: false, error: "invalid target" });
+  }
+
+  if (!title && !text) {
+    return res.status(400).json({ ok: false, error: "title or text required" });
+  }
+
+  const ts = new Date();
+  const slug = `${ts.toISOString().replace(/[:.]/g, "-")}.json`;
+  const dir = path.join(DROPBOX_ROOT, target);
+  ensureDir(dir);
+
+  const item = {
+    id: ts.getTime(),
+    target,
+    title: title || "Untitled dropbox item",
+    text,
+    source,
+    status: "new",
+    createdAt: ts.toISOString(),
+    suggestedActions: [
+      "analyze",
+      "extract dates",
+      "propose calendar entry",
+      "propose reminders"
+    ]
+  };
+
+  fs.writeFileSync(path.join(dir, slug), JSON.stringify(item, null, 2), "utf8");
+  const index = readJson(DROPBOX_INDEX_FILE, []);
+  index.unshift(item);
+  writeJson(DROPBOX_INDEX_FILE, index.slice(0, 5000));
+
+  res.json({ ok: true, item, storedAt: path.join(dir, slug) });
+});
+
 app.listen(PORT, HOST, () => {
   console.log(`${TITLE} home UI running at http://${HOST}:${PORT}`);
   console.log(`  nummer12 chat: Ollama first at ${OLLAMA_BASE_URL}, fallback ${FALLBACK_API_KEY ? "enabled" : "disabled"}`);
+  console.log(`  durable data root: ${DATA_ROOT}`);
+  console.log(`  dropbox root: ${DROPBOX_ROOT}`);
   if (!GOOGLE_CLIENT_ID) {
     console.log(`  Google Calendar: set GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET in .env`);
     console.log(`  Then visit http://localhost:${PORT}/auth/google to connect`);

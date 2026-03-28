@@ -598,7 +598,7 @@ function renderChatPanel(persona) {
     const history = getChatHistory(persona).slice(-8).map((entry) => `${entry.role === "user" ? details.name : "Nummer12"}: ${entry.text}`).join("\n");
     const context = `${details.prompt}\nPersona: ${details.name}\nInteressen: ${details.interests.map((item) => item.title).join(", ")}\nLetzte Nachrichten:\n${history}`;
     try {
-      const data = await jsonFetch("/api/nummer12/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message, context }) });
+      const data = await jsonFetch("/api/nummer12/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message, context, persona }) });
       pushChat(persona, "bot", data.reply || "Keine Antwort erhalten.");
     } catch (error) {
       pushChat(persona, "bot", `Fehler: ${error.message}`);
