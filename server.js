@@ -386,6 +386,9 @@ async function nummer12BackendGenerate(message, persona = "family") {
   if (!url) {
     throw new Error("NUMMER12_BACKEND_URL not configured");
   }
+  if (url === `http://127.0.0.1:${PORT}/api/nummer12/relay` || url === `http://localhost:${PORT}/api/nummer12/relay`) {
+    throw new Error("NUMMER12_BACKEND_URL points to self relay; direct relay not implemented yet");
+  }
 
   const { controller, timeout } = withTimeout(NUMMER12_BACKEND_TIMEOUT_MS);
   try {
@@ -865,6 +868,25 @@ app.get("/api/nummer12/health", async (_req, res) => {
       backendConfigured: Boolean(NUMMER12_BACKEND_URL),
       error: error.message
     });
+  }
+});
+
+app.post("/api/nummer12/relay", async (req, res) => {
+  const message = String(req.body?.message || "").trim();
+  const persona = String(req.body?.persona || "family").toLowerCase();
+  if (!message) return res.status(400).json({ ok: false, error: "message required" });
+  if (!isValidPersona(persona)) return res.status(400).json({ ok: false, error: "valid persona required" });
+
+  try {
+    const result = await ollamaGenerate(message);
+    return res.json({ ok: true, persona, reply: result.reply, backend: result.backend, endpoint: result.endpoint || null, model: result.model || null, relay: true });
+  } catch (ollamaError) {
+    try {
+      const fallback = await fallbackGenerate(message);
+      return res.json({ ok: true, persona, reply: fallback.reply, backend: fallback.backend, endpoint: fallback.endpoint || null, model: fallback.model || null, relay: true, fallbackReason: ollamaError instanceof Error ? ollamaError.message : "Ollama failed" });
+    } catch (fallbackError) {
+      return res.status(502).json({ ok: false, persona, relay: true, error: `Relay failed. Ollama: ${ollamaError instanceof Error ? ollamaError.message : "unknown"}. Fallback: ${fallbackError instanceof Error ? fallbackError.message : "unknown"}` });
+    }
   }
 });
 
