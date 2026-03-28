@@ -42,16 +42,43 @@ The server already supports `DATA_ROOT` and optional derived overrides:
 - `CACHE_ROOT`
 
 ## Chat backend
-The server now uses this order:
-1. External `Nummer12` / OpenClaw-compatible backend at `NUMMER12_BACKEND_URL`
-2. Local Ollama at `OLLAMA_BASE_URL`
-3. Fallback API if both fail or time out
+The server now uses a dedicated backend abstraction with these supported modes:
 
-By default that means:
-- Preferred: `NUMMER12_BACKEND_URL` for the real always-on Nummer12 runtime
-- Ollama: `http://192.168.178.64:11434` using `qwen2.5:3b`
-- Timeout: `90000` ms
-- Fallback: OpenAI-compatible `/chat/completions` with `FALLBACK_API_KEY`
+- `runtime`
+- `runtime-only`
+- `auto`
+- `ollama`
+- `fallback`
+
+Recommended production behavior:
+
+1. Real long-lived `Nummer12` runtime first
+2. Ollama as graceful local fallback
+3. OpenAI-compatible API as final fallback
+
+Default runtime target:
+
+- `http://127.0.0.1:8080/api/nummer12/relay`
+
+That target should eventually be replaced by the real always-on Nummer12 runtime on the Pi.
+
+The backend is persona-aware:
+
+- `family`
+- `nina`
+- `martin`
+- `olivia`
+- `yuna`
+- `selma`
+
+Runtime requests include:
+
+- `persona`
+- `session_key`
+- `thread_id`
+- `conversation_id`
+
+This keeps the family personas isolated while still allowing one coherent house AI system.
 
 ## Features
 - Home UI: **nummer12**
@@ -75,18 +102,32 @@ npm start
 - `DATA_ROOT` for durable runtime data on the Pi
 
 ## Chat env
-- preferred real Nummer12 backend:
+- backend selection:
+- `NUMMER12_CHAT_BACKEND_MODE`
+- runtime backend:
+- `NUMMER12_RUNTIME_BASE_URL`
+- `NUMMER12_RUNTIME_API_PATH`
+- `NUMMER12_RUNTIME_API_KEY` (optional)
+- `NUMMER12_RUNTIME_TIMEOUT_MS`
+- legacy aliases still accepted:
 - `NUMMER12_BACKEND_URL`
-- `NUMMER12_API_KEY` (optional)
-- `NUMMER12_BACKEND_TIMEOUT_MS` (optional)
+- `NUMMER12_API_KEY`
 - Ollama fallback:
 - `OLLAMA_BASE_URL`
 - `OLLAMA_MODEL`
+- `OLLAMA_TIMEOUT_MS`
 - optional final fallback:
 - `FALLBACK_API_BASE_URL`
 - `FALLBACK_API_PATH`
 - `FALLBACK_API_KEY`
 - `FALLBACK_MODEL`
+
+Important:
+
+- preferred production mode is `NUMMER12_CHAT_BACKEND_MODE=runtime`
+- `NUMMER12_RUNTIME_BASE_URL` should point at the real Nummer12 runtime, not this same Family UI process
+- `/api/nummer12/health` reports which backend is actually active
+- successful chats are archived per persona under `ARCHIVE_ROOT`
 
 ## Google Calendar env
 - `GOOGLE_CLIENT_ID`
