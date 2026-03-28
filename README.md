@@ -1,29 +1,61 @@
 # nummer12-family-ui
 
-Family home interface for the Raspberry Pi with `Nummer12`, Home Assistant, calendar integration, shopping/tasks, photo archive, and long-term family context.
+The always-on family home interface for `Nummer12`.
 
-## Long-term runtime model
+This repo is not just a dashboard. It is the long-running Raspberry Pi UI for a family of five:
 
-This app is meant to run continuously on the Raspberry Pi and keep data over years.
+- shared family home screen on a tablet
+- individual person pages
+- Home Assistant integration
+- Google Calendar integration
+- chat with `Nummer12`
+- durable storage outside the repo
+- image generation and family media archive
+- school schedule groundwork for the next 10+ years
 
-Important principles:
+## Architecture
 
-- the repository contains code
-- persistent family data lives outside the repo
-- the preferred persistent root is the USB disk on the Pi
-- `Nummer12` should preserve persona-specific context and family context separately
-- archives, photos, notes, shopping, and future generated assets should accumulate over time
+There are two separate processes:
 
-Recommended persistent root:
+1. **Family UI**
+   - Express app for the tablet UI
+   - default port: `8080`
+2. **Nummer12 relay**
+   - separate chat backend process
+   - default port: `8090`
 
-```bash
-DATA_ROOT=/mnt/family-ai
-```
+The UI must talk to the relay over local HTTP.
 
-Recommended subfolders:
+Recommended topology on the Pi:
 
 ```text
-/mnt/family-ai/
+Tablet Browser
+  -> Family UI (0.0.0.0:8080)
+  -> Nummer12 relay (127.0.0.1:8090)
+  -> real Nummer12 runtime / Ollama / fallback
+```
+
+This separation is intentional:
+
+- UI can keep evolving independently
+- chat integration can change without breaking the UI
+- no circular self-calls
+- easier to operate under `systemd`
+
+## Durable data model
+
+Persistent family data must live outside the repo.
+
+Recommended production root:
+
+```bash
+DATA_ROOT=/mnt/storage/family-ai
+```
+
+Important subfolders:
+
+```text
+/mnt/storage/family-ai/
   state/
   cache/
   archive/
@@ -31,46 +63,27 @@ Recommended subfolders:
   media/
   logs/
   backups/
+  dropbox/
 ```
 
-The server already supports `DATA_ROOT` and optional derived overrides:
+The repo is code.
+The disk is memory.
 
-- `STATE_ROOT`
-- `MEDIA_ROOT`
-- `ARCHIVE_ROOT`
-- `PROFILES_ROOT`
-- `CACHE_ROOT`
+Important persistent files already in use:
 
-## Chat architecture
-The system now has two separate pieces:
+- `STATE_ROOT/google_tokens.json`
+- `STATE_ROOT/images.json`
+- `STATE_ROOT/meal-history.json`
+- `STATE_ROOT/tasks.json`
+- `STATE_ROOT/notes.json`
+- `STATE_ROOT/academics.json`
+- `STATE_ROOT/schedules.json`
+- `PROFILES_ROOT/<persona>/profile.json`
+- `PROFILES_ROOT/<persona>/memory.md`
 
-1. **Family UI** on port `8080`
-2. **Nummer12 relay** on port `8090`
+## Personas
 
-The Family UI should talk to the relay over local HTTP:
-
-- `http://127.0.0.1:8090/api/chat`
-
-This keeps UI development independent from chat-runtime evolution and avoids circular self-calls.
-
-## Relay backend
-The relay uses a dedicated backend abstraction with these supported modes:
-
-- `runtime`
-- `runtime-only`
-- `auto`
-- `ollama`
-- `fallback`
-
-Recommended production behavior inside the relay:
-
-1. Real long-lived `Nummer12` runtime first
-2. Ollama as graceful local fallback
-3. OpenAI-compatible API as final fallback
-
-The relay itself should point to the real always-on Nummer12 runtime when available. It must not point back into the Family UI.
-
-The backend is persona-aware:
+The system keeps persona separation for:
 
 - `family`
 - `nina`
@@ -79,37 +92,118 @@ The backend is persona-aware:
 - `yuna`
 - `selma`
 
-Runtime requests include:
+The relay and UI both understand persona-aware chat.
 
-- `persona`
-- `session_key`
-- `thread_id`
-- `conversation_id`
+## Current UI model
 
-This keeps the family personas isolated while still allowing one coherent house AI system.
+### Home
 
-## Features
-- Home UI: **nummer12**
-- Status indicators: **HA connected**, **nummer12 connected**
-- Chat interface to talk to nummer12
-- Access Lights: lists all available lights from Home Assistant
-- Access Energy
-- Calendar support via dedicated Gmail account
+Current Home layout:
+
+- full-width weekly planner
+- below that:
+  - meal finder on the left
+  - daily image on the right
+- family chat below
+
+Intent:
+
+- planner stays the center
+- food suggestions support the week without taking over
+- image of the day gives atmosphere and memory
+- chat is the shared action point with `Nummer12`
+
+### Person pages
+
+Pages are no longer meant to be identical.
+
+- `Nina`: calendar and planning centered
+- `Martin`: information and topics centered
+- `Olivia`: school, timetable, grades, upcoming events
+- `Yuna`: school, timetable, upcoming events
+- `Selma`: kindergarten rhythm, playful orientation, low reading load
+
+Each person page also has:
+
+- own daily image
+- own chat context
+- secondary editable profile / background context
+
+## School schedule model
+
+Important product decision:
+
+- **Google Calendar is not the primary school timetable source**
+- **the app has its own durable timetable model**
+- **Google Calendar is the overlay for exceptions and special events**
+
+Why:
+
+- school timetables are stable over long periods
+- calendars are useful for tests, trips, parents' evenings, holidays, and deviations
+- this needs to hold up over many school years
+
+Current schedule storage:
+
+- `STATE_ROOT/schedules.json`
+
+Current APIs:
+
+- `GET /api/schedules/:member`
+- `POST /api/schedules/:member`
+- `GET /api/academics/:member`
+- `POST /api/academics/:member`
+
+Intended usage:
+
+- `Olivia`, `Yuna`, later `Selma` keep a stable weekly base schedule
+- Google Calendar overlays:
+  - special appointments
+  - deviations
+  - school events
+  - classes/tests/activities if useful
+
+This means the UI can always show a clean timetable even if calendars get noisy.
+
+## Chat / relay model
+
+The UI talks to the relay.
+The relay talks to the real runtime.
+
+Preferred production flow:
+
+1. real long-lived `Nummer12` runtime
+2. Ollama fallback
+3. OpenAI-compatible fallback
+
+Supported backend modes inside the relay:
+
+- `runtime`
+- `runtime-only`
+- `auto`
+- `ollama`
+- `fallback`
+
+Important:
+
+- the relay must **not** point back to the Family UI
+- the Family UI must **not** try to be its own runtime
 
 ## Run
+
 ```bash
 cd /Users/openmac/.openclaw/workspace/raspberry-pi-home-ai-setup
 npm install
 cp .env.example .env
 ```
 
-Run the Family UI:
+Run the UI:
 
 ```bash
 npm run start:ui
 ```
 
-Run the separate relay:
+Run the relay:
 
 ```bash
 npm run start:relay
@@ -122,143 +216,134 @@ npm run dev:ui
 npm run dev:relay
 ```
 
-## Required env
+## Required environment
+
+### Shared / UI
+
+- `DATA_ROOT`
 - `HA_BASE_URL`
 - `HA_TOKEN`
-- `DATA_ROOT` for durable runtime data on the Pi
-
-## Family UI chat env
-- relay target:
-- `NUMMER12_RELAY_BASE_URL`
-- `NUMMER12_RELAY_API_PATH`
-- `NUMMER12_RELAY_HEALTH_PATH`
-- `NUMMER12_RELAY_TIMEOUT_MS`
-
-## Relay env
-- relay bind:
-- `NUMMER12_RELAY_HOST`
-- `NUMMER12_RELAY_PORT`
-- `NUMMER12_RELAY_TITLE`
-- backend selection:
-- `NUMMER12_CHAT_BACKEND_MODE`
-- real Nummer12 runtime target:
-- `NUMMER12_RUNTIME_BASE_URL`
-- `NUMMER12_RUNTIME_API_PATH`
-- `NUMMER12_RUNTIME_API_KEY` (optional)
-- `NUMMER12_RUNTIME_TIMEOUT_MS`
-- legacy aliases still accepted:
-- `NUMMER12_BACKEND_URL`
-- `NUMMER12_API_KEY`
-- Ollama fallback:
-- `OLLAMA_BASE_URL`
-- `OLLAMA_MODEL`
-- `OLLAMA_TIMEOUT_MS`
-- optional final fallback:
-- `FALLBACK_API_BASE_URL`
-- `FALLBACK_API_PATH`
-- `FALLBACK_API_KEY`
-- `FALLBACK_MODEL`
-
-Important:
-
-- Family UI should point to the relay, not directly to Ollama or fallback
-- preferred relay mode is `NUMMER12_CHAT_BACKEND_MODE=runtime`
-- `NUMMER12_RUNTIME_BASE_URL` should point at the real Nummer12 runtime, not the Family UI and not the relay itself
-- Family UI exposes `/api/nummer12/chat` as a proxy to the relay
-- relay health is available at `/api/health`
-- successful chats are archived per persona under `ARCHIVE_ROOT`
-
-## Google Calendar env
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI`
 - `GOOGLE_CALENDAR_ID`
 
-## Calendar model
+### UI -> relay
 
-The intended Google setup is a central Nummer12 account, for example:
+- `NUMMER12_RELAY_BASE_URL`
+- `NUMMER12_RELAY_API_PATH`
+- `NUMMER12_RELAY_HEALTH_PATH`
+- `NUMMER12_RELAY_TIMEOUT_MS`
 
-- `mainbernhheimerstrasse12@gmail.com`
+### Relay
 
-Recommended structure:
+- `NUMMER12_RELAY_HOST`
+- `NUMMER12_RELAY_PORT`
+- `NUMMER12_RELAY_TITLE`
+- `NUMMER12_CHAT_BACKEND_MODE`
+- `NUMMER12_RUNTIME_BASE_URL`
+- `NUMMER12_RUNTIME_API_PATH`
+- `NUMMER12_RUNTIME_API_KEY` (optional)
+- `NUMMER12_RUNTIME_TIMEOUT_MS`
+- `OLLAMA_BASE_URL`
+- `OLLAMA_MODEL`
+- `OLLAMA_TIMEOUT_MS`
+- `FALLBACK_API_BASE_URL`
+- `FALLBACK_API_PATH`
+- `FALLBACK_API_KEY`
+- `FALLBACK_MODEL`
 
-- one shared family calendar on the hub account
-- optional separate calendars for `Nina`, `Martin`, `Olivia`, `Yuna`, and `Selma`
-- both parents can subscribe to or edit the relevant calendars
-- school schedules and child-specific routines should live in the child calendars
-- shared appointments should live in the family calendar
+Legacy aliases are still accepted where already supported.
 
-The app now supports a multi-calendar mapping file:
+## OpenRouter
+
+The UI already supports OpenRouter-backed image generation.
+
+Environment:
+
+- `OPENROUTER_API_KEY`
+- `OPENROUTER_BASE_URL`
+- `OPENROUTER_CHAT_API_PATH`
+- `OPENROUTER_IMAGE_MODEL`
+- `OPENROUTER_TIMEOUT_MS`
+- `OPENROUTER_APP_NAME`
+- `OPENROUTER_HTTP_REFERER`
+
+Current image APIs:
+
+- `GET /api/images/status`
+- `GET /api/images?persona=family&limit=12`
+- `GET /api/images/daily?persona=family`
+- `POST /api/images/upload`
+- `POST /api/images/generate`
+
+Current behavior:
+
+- uploaded device/camera images go to `DATA_ROOT/media/<persona>/uploads`
+- generated images go to `DATA_ROOT/media/<persona>/generated`
+- metadata goes to `STATE_ROOT/images.json`
+- daily images can be generated from:
+  - season
+  - upcoming events
+  - recent uploaded persona images
+
+This is the basis for later orchestration with stronger models.
+
+## Google Calendar model
+
+Recommended setup:
+
+- one dedicated Nummer12 Google account
+- one shared family calendar
+- optional separate calendars for:
+  - `Nina`
+  - `Martin`
+  - `Olivia`
+  - `Yuna`
+  - `Selma`
+
+The app supports multi-calendar mapping via:
 
 - `/Users/openmac/.openclaw/workspace/raspberry-pi-home-ai-setup/config/calendar-map.json`
 
-That mapping lets events arrive in the UI with:
+That allows events to arrive with:
 
 - `calendar_id`
 - `calendar_label`
 - `member_id`
 - `member_color`
 
-So the planner can render from explicit calendar ownership, not only from guessed names in event text.
+## Bot handoff / Pi operator notes
 
-Then open:
-- local: `http://127.0.0.1:8080`
-- LAN / Raspberry Pi: `http://192.168.178.105:8080`
+If `Nummer12` on the Pi pulls this repo, it should:
 
-Relay health check:
+1. keep persistent data outside the repo
+2. preserve persona separation
+3. run UI and relay as separate processes
+4. prefer the real long-lived runtime over local fallbacks
+5. avoid circular chat routing
+6. treat school schedules as durable first-class data
+7. keep image/media archives over time
+8. never silently fall back from `DATA_ROOT` on the Pi to random local paths
 
-- `http://127.0.0.1:8090/api/health`
+## Current gaps
 
-## Raspberry Pi setup
+Still to do:
 
-1. Mount the USB disk at a stable location, for example:
+- stronger visual timetable editor
+- timetable -> Google Calendar mirroring
+- richer school overlays from Google Calendar
+- stronger action layer for `Nummer12`:
+  - calendar create/update
+  - todo create/update
+  - meal suggestions
+  - media/image tasks
 
-```bash
-sudo mkdir -p /mnt/family-ai
-```
+## Useful references
 
-2. Point `.env` to that disk:
+Open-source school systems worth knowing about:
 
-```bash
-DATA_ROOT=/mnt/family-ai
-```
+- Gibbon timetable docs: [https://docs.gibbonedu.org/modules/learn/timetable](https://docs.gibbonedu.org/modules/learn/timetable)
+- Gibbon calendar docs: [https://docs.gibbonedu.org/modules/other/calendar](https://docs.gibbonedu.org/modules/other/calendar)
 
-3. Keep the runtime model durable:
-
-- shopping/tasks/notes should survive reboot
-- Google tokens should survive reboot
-- persona profiles and archives should grow over time
-- photo uploads and generated images should stay on the USB disk
-
-4. Run the app as a service on the Pi.
-
-Recommended service behavior:
-
-- restart on failure
-- start only after network is available
-- fail clearly if `DATA_ROOT` is missing
-- never silently fall back to random repo-local paths in production
-
-Recommended process split:
-
-- `nummer12-family-ui.service` -> `npm run start:ui`
-- `nummer12-relay.service` -> `npm run start:relay`
-
-## OpenClaw / Nummer12 expectations
-
-The Pi-side intelligence should treat this system as a long-lived home AI, not a temporary chat frontend.
-
-Expected behavior:
-
-- keep `family`, `nina`, `martin`, `olivia`, `yuna`, and `selma` separate
-- preserve context over time
-- use available local resources where appropriate
-- prefer durable storage for notes, sessions, archives, and photos
-- degrade gracefully if HA, Google, or chat backends are unavailable
-
-See also:
-
-- `/Users/openmac/.openclaw/workspace/raspberry-pi-home-ai-setup/ARCHITECTURE.md`
-- `/Users/openmac/.openclaw/workspace/raspberry-pi-home-ai-setup/DATA_MODEL.md`
-- `/Users/openmac/.openclaw/workspace/raspberry-pi-home-ai-setup/OPERATIONS.md`
-- `/Users/openmac/.openclaw/workspace/raspberry-pi-home-ai-setup/BOT_RUNTIME_NOTES.md`
+They are useful as architectural references, but this repo intentionally keeps a much lighter custom family-oriented implementation.

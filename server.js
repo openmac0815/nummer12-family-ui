@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const express = require("express");
 require("dotenv").config();
+const { readOpenRouterConfig, generateImageViaOpenRouter, extensionForMime, decodeDataUrl } = require("./lib/openrouter");
 const app = express();
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -32,9 +33,57 @@ const FAMILY_FILE = path.join(__dirname, "config", "family.json");
 const MEAL_PLAN_FILE = path.join(__dirname, "config", "meal-plan.json");
 const CALENDAR_MAP_FILE = path.join(__dirname, "config", "calendar-map.json");
 const SHOPPING_FILE = path.join(STATE_ROOT, "shopping.json");
+const TASKS_FILE = path.join(STATE_ROOT, "tasks.json");
 const NOTES_FILE = path.join(STATE_ROOT, "notes.json");
+const ACADEMICS_FILE = path.join(STATE_ROOT, "academics.json");
+const SCHEDULES_FILE = path.join(STATE_ROOT, "schedules.json");
 const TOKENS_FILE = path.join(STATE_ROOT, "google_tokens.json");
 const DROPBOX_INDEX_FILE = path.join(STATE_ROOT, "dropbox-index.json");
+const IMAGE_INDEX_FILE = path.join(STATE_ROOT, "images.json");
+const MEAL_HISTORY_FILE = path.join(STATE_ROOT, "meal-history.json");
+const openRouterConfig = readOpenRouterConfig(process.env);
+const DEFAULT_PROFILE_TEMPLATES = {
+  nina: {
+    age: "",
+    summary: "Organisation, Familie und ein ruhiger Blick auf den Alltag.",
+    interests: ["Haushalt", "Termine", "Erziehung", "Schule", "Garten", "Lesen"],
+    currentFavorites: [],
+    currentTopics: [],
+    notesForNummer12: []
+  },
+  martin: {
+    age: "",
+    summary: "Pragmatisch, techniknah und interessiert an grossen Zusammenhaengen.",
+    interests: ["AI", "Bitcoin", "World Politics", "Solar", "Technik"],
+    currentFavorites: [],
+    currentTopics: [],
+    notesForNummer12: []
+  },
+  olivia: {
+    age: 10,
+    summary: "Kreativ, musikbegeistert und gern in Bewegung.",
+    interests: ["Ballett", "Schule", "Gitarre", "Zeichnen", "Musik", "Kreativ"],
+    currentFavorites: [],
+    currentTopics: [],
+    notesForNummer12: []
+  },
+  yuna: {
+    age: 8,
+    summary: "Neugierig, musikalisch und voller Bewegungsdrang.",
+    interests: ["Musik", "Nina Chuba", "Schule", "Tanzen", "Playmobil"],
+    currentFavorites: [],
+    currentTopics: [],
+    notesForNummer12: []
+  },
+  selma: {
+    age: 4,
+    summary: "Verspielt, kreativ und nah an Musik und Bewegung.",
+    interests: ["Malen", "Ausmalen", "Playmobil", "Barbie", "Musik", "Tanzen"],
+    currentFavorites: [],
+    currentTopics: [],
+    notesForNummer12: []
+  }
+};
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -88,10 +137,15 @@ function ensureStorageLayout() {
   ensureDir(path.join(DROPBOX_ROOT, "general"));
   ensureDir(path.join(DROPBOX_ROOT, "family"));
   ensureFile(DROPBOX_INDEX_FILE, []);
+  ensureFile(IMAGE_INDEX_FILE, []);
+  ensureFile(TASKS_FILE, []);
+  ensureFile(MEAL_HISTORY_FILE, []);
+  ensureFile(ACADEMICS_FILE, {});
+  ensureFile(SCHEDULES_FILE, {});
 }
 
 function validateStorageLayout() {
-  if (!fs.existsSync("/mnt/storage")) {
+  if (DATA_ROOT === PRODUCTION_DATA_ROOT && !fs.existsSync("/mnt/storage")) {
     throw new Error("External storage mount /mnt/storage is missing");
   }
   ensureStorageLayout();
@@ -99,7 +153,7 @@ function validateStorageLayout() {
 
 validateStorageLayout();
 
-app.use(express.json({ limit: "300kb" }));
+app.use(express.json({ limit: "20mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 function readJson(file, fallback) {
@@ -137,6 +191,88 @@ function appendNdjson(file, entry) {
 
 function writeJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
+}
+
+function slugify(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "image";
+}
+
+function sanitizeFilename(value) {
+  return String(value || "image")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "image";
+}
+
+function buildImagePrompt({ persona, prompt }) {
+  const personaLabel = isValidPersona(persona) ? persona : "family";
+  return [
+    "Erzeuge ein warmes, hochwertiges Bild fur das Familienarchiv von Nummer12.",
+    `Persona-Kontext: ${personaLabel}.`,
+    "Stil: naturlich, freundlich, wohnlich, alltagstauglich, nicht kitschig.",
+    "Wenn Menschen vorkommen, dann ohne identifizierbare echte Personen zu imitieren.",
+    prompt
+  ].join(" ");
+}
+
+function imagePublicPath(filePath) {
+  const relative = path.relative(DATA_ROOT, filePath).split(path.sep).join("/");
+  return `/api/files/${encodeURIComponent(relative)}`;
+}
+
+function addImageIndexEntry(entry) {
+  const items = readJson(IMAGE_INDEX_FILE, []);
+  items.unshift(entry);
+  writeJson(IMAGE_INDEX_FILE, items.slice(0, 2000));
+}
+
+function listRecentImages(persona = "family", limit = 12) {
+  const items = readJson(IMAGE_INDEX_FILE, []);
+  return items
+    .filter((item) => !persona || item.persona === persona || item.persona === "family")
+    .slice(0, limit)
+    .map((item) => ({
+      ...item,
+      url: imagePublicPath(item.filePath)
+    }));
+}
+
+function storeImageAsset({ persona, kind, prompt, source, buffer, mimeType, originalName = "" }) {
+  const now = new Date();
+  const personaPaths = getPersonaPaths(persona);
+  const rootDir = kind === "upload" ? personaPaths.uploadDir : personaPaths.generatedDir;
+  const monthDir = path.join(rootDir, `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
+  ensureDir(monthDir);
+
+  const ext = extensionForMime(mimeType);
+  const baseName = sanitizeFilename(`${now.toISOString().replace(/[:.]/g, "-")}-${slugify(originalName || prompt || kind)}`);
+  const filePath = path.join(monthDir, `${baseName}.${ext}`);
+  const metaPath = path.join(monthDir, `${baseName}.json`);
+
+  fs.writeFileSync(filePath, buffer);
+
+  const entry = {
+    id: now.getTime(),
+    persona,
+    kind,
+    source,
+    prompt: prompt || "",
+    originalName: originalName || "",
+    mimeType,
+    filePath,
+    createdAt: now.toISOString()
+  };
+
+  fs.writeFileSync(metaPath, JSON.stringify(entry, null, 2), "utf8");
+  addImageIndexEntry(entry);
+
+  return {
+    ...entry,
+    url: imagePublicPath(filePath)
+  };
 }
 
 function normalizeUrl(baseUrl, apiPath) {
@@ -192,8 +328,270 @@ function readFamilyConfig() {
   return readJson(FAMILY_FILE, { members: [] });
 }
 
+function defaultProfileForPersona(persona) {
+  const familyMember = readFamilyConfig().members?.find((entry) => entry.id === persona) || null;
+  const template = DEFAULT_PROFILE_TEMPLATES[persona] || {
+    age: "",
+    summary: "",
+    interests: [],
+    currentFavorites: [],
+    currentTopics: [],
+    notesForNummer12: []
+  };
+
+  return {
+    id: persona,
+    displayName: familyMember?.name || persona.charAt(0).toUpperCase() + persona.slice(1),
+    age: template.age,
+    summary: template.summary,
+    interests: template.interests,
+    currentFavorites: template.currentFavorites,
+    currentTopics: template.currentTopics,
+    notesForNummer12: template.notesForNummer12,
+    updatedAt: null
+  };
+}
+
+function normalizeProfilePayload(persona, payload = {}) {
+  return {
+    id: persona,
+    displayName: String(payload.displayName || defaultProfileForPersona(persona).displayName).trim() || defaultProfileForPersona(persona).displayName,
+    age: payload.age === "" || payload.age == null ? "" : Number(payload.age),
+    summary: String(payload.summary || "").trim(),
+    interests: Array.isArray(payload.interests)
+      ? payload.interests.map((item) => String(item).trim()).filter(Boolean)
+      : String(payload.interests || "").split(",").map((item) => item.trim()).filter(Boolean),
+    currentFavorites: Array.isArray(payload.currentFavorites)
+      ? payload.currentFavorites.map((item) => String(item).trim()).filter(Boolean)
+      : String(payload.currentFavorites || "").split(",").map((item) => item.trim()).filter(Boolean),
+    currentTopics: Array.isArray(payload.currentTopics)
+      ? payload.currentTopics.map((item) => String(item).trim()).filter(Boolean)
+      : String(payload.currentTopics || "").split(",").map((item) => item.trim()).filter(Boolean),
+    notesForNummer12: Array.isArray(payload.notesForNummer12)
+      ? payload.notesForNummer12.map((item) => String(item).trim()).filter(Boolean)
+      : String(payload.notesForNummer12 || "").split("\n").map((item) => item.trim()).filter(Boolean),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function readProfile(persona) {
+  const personaPaths = getPersonaPaths(persona);
+  const stored = readJson(personaPaths.profileFile, {});
+  return {
+    ...defaultProfileForPersona(persona),
+    ...stored,
+    id: persona
+  };
+}
+
+function readAcademicProfile(persona) {
+  const all = readJson(ACADEMICS_FILE, {});
+  return all[persona] || {
+    timetableNotes: "",
+    grades: [],
+    notes: ""
+  };
+}
+
+function writeAcademicProfile(persona, payload) {
+  const all = readJson(ACADEMICS_FILE, {});
+  all[persona] = {
+    timetableNotes: String(payload.timetableNotes || "").trim(),
+    notes: String(payload.notes || "").trim(),
+    grades: Array.isArray(payload.grades)
+      ? payload.grades
+          .map((entry) => ({
+            subject: String(entry.subject || "").trim(),
+            grade: String(entry.grade || "").trim()
+          }))
+          .filter((entry) => entry.subject || entry.grade)
+      : []
+  };
+  writeJson(ACADEMICS_FILE, all);
+  return all[persona];
+}
+
+function defaultScheduleProfile(persona) {
+  const isKindergarten = persona === "selma";
+  return {
+    activePlan: "default",
+    plans: {
+      default: {
+        label: isKindergarten ? "Kindergartenwoche" : "Stundenplan",
+        weekModel: "single",
+        days: {
+          monday: [],
+          tuesday: [],
+          wednesday: [],
+          thursday: [],
+          friday: []
+        }
+      }
+    }
+  };
+}
+
+function normalizeScheduleEntries(entries = []) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .map((entry, index) => ({
+      slot: Number(entry.slot || index + 1),
+      start: String(entry.start || "").trim(),
+      end: String(entry.end || "").trim(),
+      subject: String(entry.subject || "").trim(),
+      note: String(entry.note || "").trim()
+    }))
+    .filter((entry) => entry.subject || entry.start || entry.end || entry.note)
+    .sort((a, b) => a.slot - b.slot);
+}
+
+function readScheduleProfile(persona) {
+  const all = readJson(SCHEDULES_FILE, {});
+  const stored = all[persona] || {};
+  const fallback = defaultScheduleProfile(persona);
+  const activePlan = stored.activePlan || fallback.activePlan;
+  const plans = stored.plans && typeof stored.plans === "object" ? stored.plans : fallback.plans;
+  const normalizedPlans = Object.fromEntries(
+    Object.entries(plans).map(([planId, plan]) => [
+      planId,
+      {
+        label: String(plan.label || "Stundenplan").trim(),
+        weekModel: plan.weekModel === "a_b" ? "a_b" : "single",
+        days: {
+          monday: normalizeScheduleEntries(plan.days?.monday),
+          tuesday: normalizeScheduleEntries(plan.days?.tuesday),
+          wednesday: normalizeScheduleEntries(plan.days?.wednesday),
+          thursday: normalizeScheduleEntries(plan.days?.thursday),
+          friday: normalizeScheduleEntries(plan.days?.friday)
+        }
+      }
+    ])
+  );
+  return {
+    activePlan,
+    plans: Object.keys(normalizedPlans).length ? normalizedPlans : fallback.plans
+  };
+}
+
+function writeScheduleProfile(persona, payload) {
+  const all = readJson(SCHEDULES_FILE, {});
+  const current = readScheduleProfile(persona);
+  const activePlan = String(payload.activePlan || current.activePlan || "default").trim() || "default";
+  const sourcePlans = payload.plans && typeof payload.plans === "object" ? payload.plans : current.plans;
+  const plans = Object.fromEntries(
+    Object.entries(sourcePlans).map(([planId, plan]) => [
+      planId,
+      {
+        label: String(plan.label || "Stundenplan").trim(),
+        weekModel: plan.weekModel === "a_b" ? "a_b" : "single",
+        days: {
+          monday: normalizeScheduleEntries(plan.days?.monday),
+          tuesday: normalizeScheduleEntries(plan.days?.tuesday),
+          wednesday: normalizeScheduleEntries(plan.days?.wednesday),
+          thursday: normalizeScheduleEntries(plan.days?.thursday),
+          friday: normalizeScheduleEntries(plan.days?.friday)
+        }
+      }
+    ])
+  );
+  all[persona] = {
+    activePlan,
+    plans: Object.keys(plans).length ? plans : current.plans
+  };
+  writeJson(SCHEDULES_FILE, all);
+  return readScheduleProfile(persona);
+}
+
 function readMealPlanConfig() {
   return readJson(MEAL_PLAN_FILE, { weekdayMeals: {} });
+}
+
+function readMealHistory() {
+  return readJson(MEAL_HISTORY_FILE, []);
+}
+
+function buildMealFinder() {
+  const config = readMealPlanConfig();
+  const history = readMealHistory();
+  const catalog = Object.entries(config.weekdayMeals || {}).flatMap(([weekday, entries]) =>
+    (entries || []).map((entry) => ({ ...entry, weekday: Number(weekday) }))
+  );
+
+  const counts = new Map();
+  const lastCooked = new Map();
+  for (const item of history) {
+    counts.set(item.title, (counts.get(item.title) || 0) + 1);
+    lastCooked.set(item.title, item.ts);
+  }
+
+  const uniqueMeals = [];
+  const seen = new Set();
+  for (const item of catalog) {
+    if (seen.has(item.title)) continue;
+    seen.add(item.title);
+    uniqueMeals.push(item);
+  }
+
+  const today = new Date().getDay();
+  const todaySuggestions = (config.weekdayMeals?.[String(today)] || []).map((entry) => ({
+    ...entry,
+    timesCooked: counts.get(entry.title) || 0,
+    lastCookedAt: lastCooked.get(entry.title) || null
+  }));
+
+  const favorites = [...uniqueMeals]
+    .sort((a, b) => (counts.get(b.title) || 0) - (counts.get(a.title) || 0))
+    .filter((entry) => (counts.get(entry.title) || 0) > 0)
+    .slice(0, 6)
+    .map((entry) => ({
+      ...entry,
+      timesCooked: counts.get(entry.title) || 0,
+      lastCookedAt: lastCooked.get(entry.title) || null
+    }));
+
+  const quickOptions = uniqueMeals
+    .filter((entry) => /schnell|leicht|ohne viel stress|wenig aufwand|unkompliziert/i.test(entry.notes || ""))
+    .slice(0, 6)
+    .map((entry) => ({
+      ...entry,
+      timesCooked: counts.get(entry.title) || 0
+    }));
+
+  const sortedByOldest = [...uniqueMeals].sort((a, b) => {
+    const aTs = lastCooked.get(a.title) ? new Date(lastCooked.get(a.title)).getTime() : 0;
+    const bTs = lastCooked.get(b.title) ? new Date(lastCooked.get(b.title)).getTime() : 0;
+    return aTs - bTs;
+  });
+
+  const tryAgain = sortedByOldest.slice(0, 6).map((entry) => ({
+    ...entry,
+    timesCooked: counts.get(entry.title) || 0,
+    lastCookedAt: lastCooked.get(entry.title) || null
+  }));
+
+  const currentYear = new Date().getFullYear();
+  const mostCookedThisYear = [...history]
+    .filter((item) => new Date(item.ts).getFullYear() === currentYear)
+    .reduce((acc, item) => {
+      acc[item.title] = (acc[item.title] || 0) + 1;
+      return acc;
+    }, {});
+
+  const topThisYear = Object.entries(mostCookedThisYear)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([title, count]) => ({ title, count }));
+
+  return {
+    todaySuggestions,
+    favorites,
+    quickOptions,
+    tryAgain,
+    stats: {
+      historyCount: history.length,
+      topThisYear
+    }
+  };
 }
 
 function readCalendarMapConfig() {
@@ -315,6 +713,7 @@ function getGoogleAuthUrl() {
     response_type: "code",
     scope: [
       "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.events",
       "https://www.googleapis.com/auth/calendar.events.readonly"
     ].join(" "),
     access_type: "offline",
@@ -357,6 +756,289 @@ async function gcalFetch(endpoint) {
   const data = await r.json();
   if (!r.ok) throw new Error(`GCal error: ${data.error?.message || r.status}`);
   return data;
+}
+
+async function gcalRequest(endpoint, options = {}) {
+  const token = await getValidGoogleToken();
+  const r = await fetch(`https://www.googleapis.com/calendar/v3${endpoint}`, {
+    ...options,
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+      ...(options.headers || {})
+    }
+  });
+  const data = await r.json().catch(() => null);
+  if (!r.ok) {
+    const error = new Error(`GCal error: ${data?.error?.message || r.status}`);
+    error.status = r.status;
+    error.payload = data;
+    throw error;
+  }
+  return data;
+}
+
+async function loadEventsForWindow({ timeMin, timeMax }) {
+  const sources = getCalendarSources();
+  const settled = await Promise.allSettled(
+    sources.map(async (source) => {
+      const params = new URLSearchParams({
+        timeMin,
+        timeMax,
+        singleEvents: "true",
+        orderBy: "startTime",
+        maxResults: "50"
+      });
+      const data = await gcalFetch(`/calendars/${encodeURIComponent(source.id)}/events?${params}`);
+      return (Array.isArray(data.items) ? data.items : []).map((item) => ({
+        ...item,
+        calendar_id: source.id,
+        calendar_label: source.label,
+        member_id: source.member_id || null,
+        member_name: source.member_name || null,
+        member_color: source.color || null
+      }));
+    })
+  );
+  return settled
+    .filter((result) => result.status === "fulfilled")
+    .flatMap((result) => result.value);
+}
+
+function detectPersonasInText(text) {
+  const lower = String(text || "").toLowerCase();
+  return readFamilyConfig()
+    .members
+    .filter((member) => lower.includes(member.name.toLowerCase()) || lower.includes(member.id.toLowerCase()))
+    .map((member) => member.id);
+}
+
+function parseActionDate(message) {
+  const text = String(message || "");
+  const lower = text.toLowerCase();
+  const now = new Date();
+
+  if (lower.includes("morgen")) {
+    const date = new Date(now);
+    date.setDate(date.getDate() + 1);
+    return { isoDate: date.toISOString().slice(0, 10), allDay: true };
+  }
+  if (lower.includes("heute")) {
+    return { isoDate: now.toISOString().slice(0, 10), allDay: true };
+  }
+
+  const dateMatch = text.match(/\b(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\b/);
+  if (!dateMatch) return null;
+  const day = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const year = dateMatch[3] ? Number(dateMatch[3].length === 2 ? `20${dateMatch[3]}` : dateMatch[3]) : now.getFullYear();
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const timeMatch = text.match(/\b(\d{1,2})[:.](\d{2})\b/);
+  if (timeMatch) {
+    date.setHours(Number(timeMatch[1]), Number(timeMatch[2]), 0, 0);
+    const end = new Date(date);
+    end.setHours(end.getHours() + 2);
+    return {
+      isoDateTime: date.toISOString(),
+      endIsoDateTime: end.toISOString(),
+      allDay: false
+    };
+  }
+
+  return { isoDate: date.toISOString().slice(0, 10), allDay: true };
+}
+
+function parseAssistantActions(message) {
+  const lower = String(message || "").toLowerCase().trim();
+  if (!lower) return null;
+
+  const shouldCreateEvent = /\b(trage|eintragen|plane|erstelle)\b/.test(lower) && (
+    lower.includes("geburtstag") || lower.includes("party") || lower.includes("termin")
+  );
+  const shouldCreateTask = /\b(todo|aufgabe|besorgen|geschenk|denk dran|erinnere)\b/.test(lower);
+
+  if (!shouldCreateEvent && !shouldCreateTask) return null;
+
+  const personas = detectPersonasInText(message);
+  const date = parseActionDate(message);
+  const locationMatch = message.match(/\bbei\s+([^,.;]+)/i);
+  const location = locationMatch ? locationMatch[1].trim() : "";
+  const actions = [];
+
+  if (shouldCreateEvent) {
+    let title = "Neuer Familientermin";
+    if (lower.includes("geburtstag")) {
+      title = location ? `Geburtstagsfeier bei ${location}` : "Geburtstagsfeier";
+    } else if (lower.includes("party")) {
+      title = location ? `Party bei ${location}` : "Party";
+    }
+
+    actions.push({
+      type: "calendar.create",
+      title,
+      personas,
+      location,
+      date,
+      missingDate: !date
+    });
+  }
+
+  if (shouldCreateTask) {
+    let text = "Neue Aufgabe";
+    const giftMatch = message.match(/geschenk(?:\s+f[üu]r)?\s+([^,.;]+)/i);
+    if (giftMatch) {
+      text = `Geschenk fur ${giftMatch[1].trim()} besorgen`;
+    } else if (/besorgen/i.test(message)) {
+      text = message.trim();
+    } else {
+      text = "Offene Aufgabe aus Chat";
+    }
+    actions.push({
+      type: "task.create",
+      text,
+      personas
+    });
+  }
+
+  return actions;
+}
+
+async function createCalendarEventFromAction(action) {
+  if (!action?.date) {
+    return { ok: false, type: "calendar.create", error: "missing-date" };
+  }
+
+  const sources = getCalendarSources();
+  const familySource = sources.find((source) => source.member_id === "family" && source.writable);
+  const target = action.personas?.length === 1
+    ? (sources.find((source) => source.member_id === action.personas[0] && source.writable) || familySource)
+    : familySource;
+
+  if (!target?.id) {
+    return { ok: false, type: "calendar.create", error: "no-writable-calendar" };
+  }
+
+  const body = action.date.allDay
+    ? {
+        summary: action.title,
+        location: action.location || undefined,
+        description: action.personas?.length ? `Betrifft: ${action.personas.join(", ")}` : undefined,
+        start: { date: action.date.isoDate },
+        end: { date: action.date.isoDate }
+      }
+    : {
+        summary: action.title,
+        location: action.location || undefined,
+        description: action.personas?.length ? `Betrifft: ${action.personas.join(", ")}` : undefined,
+        start: { dateTime: action.date.isoDateTime },
+        end: { dateTime: action.date.endIsoDateTime }
+      };
+
+  try {
+    const event = await gcalRequest(`/calendars/${encodeURIComponent(target.id)}/events`, {
+      method: "POST",
+      body: JSON.stringify(body)
+    });
+    return { ok: true, type: "calendar.create", calendarId: target.id, eventId: event.id, title: action.title };
+  } catch (error) {
+    return { ok: false, type: "calendar.create", error: error.message };
+  }
+}
+
+function createTaskFromAction(action) {
+  const items = readJson(TASKS_FILE, []);
+  const item = {
+    id: Date.now(),
+    text: action.text,
+    personas: action.personas || [],
+    done: false,
+    createdAt: new Date().toISOString(),
+    source: "nummer12-chat"
+  };
+  items.push(item);
+  writeJson(TASKS_FILE, items);
+  return { ok: true, type: "task.create", task: item };
+}
+
+function currentSeasonLabel(date = new Date()) {
+  const month = date.getMonth() + 1;
+  if (month === 12 || month <= 2) return "Winter";
+  if (month <= 5) return "Fruehling";
+  if (month <= 8) return "Sommer";
+  return "Herbst";
+}
+
+function findRecentReferenceImages(persona, limit = 2) {
+  const items = readJson(IMAGE_INDEX_FILE, []);
+  return items
+    .filter((item) => item.persona === persona && item.kind === "upload")
+    .slice(0, limit)
+    .map((item) => ({ dataUrl: `data:${item.mimeType};base64,${fs.readFileSync(item.filePath).toString("base64")}` }));
+}
+
+async function getOrCreateDailyImage(persona = "family") {
+  const today = new Date().toISOString().slice(0, 10);
+  const existing = readJson(IMAGE_INDEX_FILE, []).find((item) => (
+    item.persona === persona &&
+    item.kind === "generated" &&
+    item.source === "openrouter-daily" &&
+    String(item.createdAt || "").startsWith(today)
+  ));
+
+  if (existing) {
+    return { ...existing, url: imagePublicPath(existing.filePath), reused: true };
+  }
+
+  let eventSummary = "";
+  try {
+    const from = new Date();
+    const to = new Date();
+    to.setDate(to.getDate() + 7);
+    const events = await loadEventsForWindow({ timeMin: from.toISOString(), timeMax: to.toISOString() });
+    const relevant = events.filter((event) => persona === "family" || event.member_id === persona).slice(0, 4);
+    eventSummary = relevant.map((event) => event.summary).filter(Boolean).join(", ");
+  } catch {
+    eventSummary = "";
+  }
+
+  const season = currentSeasonLabel();
+  const prompt = [
+    `Ein hochwertiges Bild des Tages fuer ${persona}.`,
+    `Jahreszeit: ${season}.`,
+    eventSummary ? `Naechste Termine oder Themen: ${eventSummary}.` : "Kein besonderer Terminbezug erkannt.",
+    "Freundlich, warm, familientauglich, bildstark, nicht kitschig."
+  ].join(" ");
+
+  const result = await generateImageViaOpenRouter(openRouterConfig, {
+    prompt,
+    referenceImages: findRecentReferenceImages(persona, 1)
+  });
+
+  const stored = storeImageAsset({
+    persona,
+    kind: "generated",
+    prompt,
+    source: "openrouter-daily",
+    buffer: result.images[0].buffer,
+    mimeType: result.images[0].mimeType,
+    originalName: `daily-${persona}`
+  });
+
+  return { ...stored, reused: false };
+}
+
+async function executeAssistantActions(actions = []) {
+  const results = [];
+  for (const action of actions) {
+    if (action.type === "calendar.create") {
+      results.push(await createCalendarEventFromAction(action));
+    } else if (action.type === "task.create") {
+      results.push(createTaskFromAction(action));
+    }
+  }
+  return results;
 }
 
 app.get("/auth/google", (_req, res) => {
@@ -555,6 +1237,44 @@ app.delete("/api/shopping/:id", (req, res) => {
   res.json({ ok: true });
 });
 
+app.get("/api/tasks", (_req, res) => {
+  res.json({ ok: true, items: readJson(TASKS_FILE, []) });
+});
+
+app.post("/api/tasks", (req, res) => {
+  const text = String(req.body?.text || "").trim();
+  if (!text) return res.status(400).json({ ok: false, error: "text required" });
+  const items = readJson(TASKS_FILE, []);
+  const item = {
+    id: Date.now(),
+    text,
+    personas: Array.isArray(req.body?.personas) ? req.body.personas : [],
+    done: false,
+    createdAt: new Date().toISOString(),
+    source: req.body?.source || "ui"
+  };
+  items.push(item);
+  writeJson(TASKS_FILE, items);
+  res.json({ ok: true, item });
+});
+
+app.patch("/api/tasks/:id", (req, res) => {
+  const id = Number(req.params.id);
+  const items = readJson(TASKS_FILE, []);
+  const idx = items.findIndex((item) => item.id === id);
+  if (idx === -1) return res.status(404).json({ ok: false });
+  items[idx] = { ...items[idx], ...req.body };
+  writeJson(TASKS_FILE, items);
+  res.json({ ok: true, item: items[idx] });
+});
+
+app.delete("/api/tasks/:id", (req, res) => {
+  const id = Number(req.params.id);
+  const items = readJson(TASKS_FILE, []).filter((item) => item.id !== id);
+  writeJson(TASKS_FILE, items);
+  res.json({ ok: true });
+});
+
 app.get("/api/notes/:member", (req, res) => {
   const notes = readJson(NOTES_FILE, {});
   const member = req.params.member;
@@ -567,6 +1287,182 @@ app.post("/api/notes/:member", (req, res) => {
   notes[member] = { ...req.body, updatedAt: new Date().toISOString() };
   writeJson(NOTES_FILE, notes);
   res.json({ ok: true, notes: notes[member] });
+});
+
+app.get("/api/academics/:member", (req, res) => {
+  const member = String(req.params.member || "").toLowerCase();
+  if (!isValidPersona(member) || member === "family") {
+    return res.status(400).json({ ok: false, error: "valid member persona required" });
+  }
+  return res.json({ ok: true, academic: readAcademicProfile(member) });
+});
+
+app.get("/api/schedules/:member", (req, res) => {
+  const member = String(req.params.member || "").toLowerCase();
+  if (!isValidPersona(member) || member === "family" || member === "nina" || member === "martin") {
+    return res.status(400).json({ ok: false, error: "valid school persona required" });
+  }
+  return res.json({ ok: true, schedule: readScheduleProfile(member) });
+});
+
+app.post("/api/schedules/:member", (req, res) => {
+  const member = String(req.params.member || "").toLowerCase();
+  if (!isValidPersona(member) || member === "family" || member === "nina" || member === "martin") {
+    return res.status(400).json({ ok: false, error: "valid school persona required" });
+  }
+  return res.json({ ok: true, schedule: writeScheduleProfile(member, req.body || {}) });
+});
+
+app.post("/api/academics/:member", (req, res) => {
+  const member = String(req.params.member || "").toLowerCase();
+  if (!isValidPersona(member) || member === "family") {
+    return res.status(400).json({ ok: false, error: "valid member persona required" });
+  }
+  return res.json({ ok: true, academic: writeAcademicProfile(member, req.body || {}) });
+});
+
+app.get("/api/profiles/:member", (req, res) => {
+  const member = String(req.params.member || "").toLowerCase();
+  if (!isValidPersona(member) || member === "family") {
+    return res.status(400).json({ ok: false, error: "valid member persona required" });
+  }
+  return res.json({ ok: true, profile: readProfile(member) });
+});
+
+app.post("/api/profiles/:member", (req, res) => {
+  const member = String(req.params.member || "").toLowerCase();
+  if (!isValidPersona(member) || member === "family") {
+    return res.status(400).json({ ok: false, error: "valid member persona required" });
+  }
+
+  const personaPaths = getPersonaPaths(member);
+  const profile = normalizeProfilePayload(member, req.body || {});
+  writeJson(personaPaths.profileFile, profile);
+  return res.json({ ok: true, profile: readProfile(member) });
+});
+
+app.get("/api/images/status", (_req, res) => {
+  res.json({
+    ok: true,
+    configured: Boolean(openRouterConfig.apiKey),
+    model: openRouterConfig.imageModel,
+    provider: "openrouter"
+  });
+});
+
+app.get("/api/images", (req, res) => {
+  const persona = String(req.query.persona || "family").toLowerCase();
+  const limit = Math.min(Math.max(Number(req.query.limit || 12), 1), 36);
+  res.json({
+    ok: true,
+    configured: Boolean(openRouterConfig.apiKey),
+    model: openRouterConfig.imageModel,
+    items: listRecentImages(isValidPersona(persona) ? persona : "family", limit)
+  });
+});
+
+app.get("/api/images/daily", async (req, res) => {
+  const persona = String(req.query.persona || "family").toLowerCase();
+  if (!isValidPersona(persona)) {
+    return res.status(400).json({ ok: false, error: "valid persona required" });
+  }
+  try {
+    const item = await getOrCreateDailyImage(persona);
+    res.json({
+      ok: true,
+      configured: Boolean(openRouterConfig.apiKey),
+      model: openRouterConfig.imageModel,
+      item
+    });
+  } catch (error) {
+    res.status(error.status || 502).json({
+      ok: false,
+      error: error.message,
+      configured: Boolean(openRouterConfig.apiKey),
+      model: openRouterConfig.imageModel
+    });
+  }
+});
+
+app.get("/api/files/:encodedPath", (req, res) => {
+  const relative = decodeURIComponent(String(req.params.encodedPath || ""));
+  const absolute = path.resolve(DATA_ROOT, relative);
+  if (!absolute.startsWith(DATA_ROOT)) {
+    return res.status(400).json({ ok: false, error: "invalid file path" });
+  }
+  if (!fs.existsSync(absolute)) {
+    return res.status(404).json({ ok: false, error: "file not found" });
+  }
+  return res.sendFile(absolute);
+});
+
+app.post("/api/images/upload", (req, res) => {
+  const persona = String(req.body?.persona || "family").toLowerCase();
+  const filename = String(req.body?.filename || "upload");
+  const dataUrl = String(req.body?.dataUrl || "");
+  const caption = String(req.body?.caption || "").trim();
+
+  if (!isValidPersona(persona)) {
+    return res.status(400).json({ ok: false, error: "valid persona required" });
+  }
+
+  const decoded = decodeDataUrl(dataUrl);
+  if (!decoded) {
+    return res.status(400).json({ ok: false, error: "valid image dataUrl required" });
+  }
+
+  const item = storeImageAsset({
+    persona,
+    kind: "upload",
+    prompt: caption,
+    source: "camera-upload",
+    buffer: decoded.buffer,
+    mimeType: decoded.mimeType,
+    originalName: filename
+  });
+
+  res.json({ ok: true, item });
+});
+
+app.post("/api/images/generate", async (req, res) => {
+  const persona = String(req.body?.persona || "family").toLowerCase();
+  const prompt = String(req.body?.prompt || "").trim();
+  if (!isValidPersona(persona)) {
+    return res.status(400).json({ ok: false, error: "valid persona required" });
+  }
+  if (!prompt) {
+    return res.status(400).json({ ok: false, error: "prompt required" });
+  }
+
+  try {
+    const result = await generateImageViaOpenRouter(openRouterConfig, {
+      prompt: buildImagePrompt({ persona, prompt })
+    });
+
+    const items = result.images.map((image, index) => storeImageAsset({
+      persona,
+      kind: "generated",
+      prompt,
+      source: "openrouter",
+      buffer: image.buffer,
+      mimeType: image.mimeType,
+      originalName: `${prompt}-${index + 1}`
+    }));
+
+    res.json({
+      ok: true,
+      provider: "openrouter",
+      model: result.model,
+      items
+    });
+  } catch (error) {
+    res.status(error.status || 502).json({
+      ok: false,
+      error: error.message,
+      provider: "openrouter",
+      model: openRouterConfig.imageModel
+    });
+  }
 });
 
 app.get("/api/meal-plan", (_req, res) => {
@@ -586,6 +1482,26 @@ app.get("/api/meal-plan", (_req, res) => {
   }
 
   res.json({ ok: true, days });
+});
+
+app.get("/api/meals/finder", (_req, res) => {
+  res.json({ ok: true, finder: buildMealFinder() });
+});
+
+app.post("/api/meals/record", (req, res) => {
+  const title = String(req.body?.title || "").trim();
+  if (!title) return res.status(400).json({ ok: false, error: "title required" });
+  const history = readMealHistory();
+  const entry = {
+    id: Date.now(),
+    title,
+    notes: String(req.body?.notes || "").trim(),
+    rating: String(req.body?.rating || "").trim(),
+    ts: new Date().toISOString()
+  };
+  history.push(entry);
+  writeJson(MEAL_HISTORY_FILE, history);
+  res.json({ ok: true, entry, finder: buildMealFinder() });
 });
 
 app.get("/api/shutters", async (_req, res) => {
@@ -702,6 +1618,35 @@ app.post("/api/nummer12/relay", async (req, res) => {
 });
 
 app.post("/api/nummer12/chat", async (req, res) => {
+  const message = String(req.body?.message || "").trim();
+  const localActions = parseAssistantActions(message);
+  if (localActions?.length) {
+    const results = await executeAssistantActions(localActions);
+    const parts = [];
+    const calendarCreated = results.find((item) => item.type === "calendar.create" && item.ok);
+    const calendarMissingDate = results.find((item) => item.type === "calendar.create" && item.error === "missing-date");
+    const taskCreated = results.find((item) => item.type === "task.create" && item.ok);
+
+    if (calendarCreated) {
+      parts.push(`Ich habe den Termin "${calendarCreated.title}" im Kalender eingetragen.`);
+    } else if (calendarMissingDate) {
+      parts.push("Ich habe erkannt, dass du einen Termin anlegen willst, aber mir fehlt noch ein Datum.");
+    }
+
+    if (taskCreated) {
+      parts.push(`Die Aufgabe "${taskCreated.task.text}" steht jetzt auf der Familienliste.`);
+    }
+
+    const fallbackReply = parts.length ? parts.join(" ") : "Ich habe die Aktion erkannt, konnte sie aber noch nicht vollstandig ausfuhren.";
+    return res.json({
+      ok: true,
+      reply: fallbackReply,
+      backend: "local-actions",
+      persona: String(req.body?.persona || "family").toLowerCase(),
+      actions: results
+    });
+  }
+
   try {
     const result = await relayFetchJson(NUMMER12_RELAY_API_PATH, {
       ...(req.body || {}),

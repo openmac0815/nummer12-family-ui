@@ -5,3 +5,5 @@ npm-debug.log*
 
 *.log
 data/
+.local-data/
+.env.bak_*
