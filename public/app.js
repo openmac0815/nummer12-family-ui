@@ -73,6 +73,16 @@ const PERSONA_DETAILS = {
   }
 };
 
+const AVATAR_SPRITE_POSITIONS = {
+  nina: { x: "0%", y: "0%" },
+  martin: { x: "50%", y: "0%" },
+  olivia: { x: "100%", y: "0%" },
+  selma: { x: "0%", y: "100%" },
+  yuna: { x: "50%", y: "100%" },
+  family: { x: "100%", y: "100%" },
+  nummer12: { x: "100%", y: "100%" }
+};
+
 const NAV_ITEMS = [
   { id: "home", label: "Home" },
   { id: "calendar", label: "Kalender" },
@@ -158,6 +168,18 @@ function createNodeFromHtml(html) {
   const template = document.createElement("template");
   template.innerHTML = html.trim();
   return template.content.firstElementChild;
+}
+
+function avatarPositionFor(persona) {
+  return AVATAR_SPRITE_POSITIONS[persona] || AVATAR_SPRITE_POSITIONS.family;
+}
+
+function renderAvatar(persona = "family", options = {}) {
+  const { size = "medium", glow = true, label = "" } = options;
+  const pos = avatarPositionFor(persona);
+  return `<div class="avatar-shell ${glow ? "glow" : ""} ${size}">
+    <div class="sprite-avatar ${size}" style="--avatar-x:${pos.x}; --avatar-y:${pos.y};" aria-label="${escapeHtml(label || persona)}"></div>
+  </div>`;
 }
 
 function setStatus(dot, label, base, ok, extra = "") {
@@ -599,7 +621,7 @@ function renderMealFinderPanel() {
       <div>
         <p class="eyebrow">Essen</p>
         <h3>Essensfinder</h3>
-        <p class="card-copy">Kompakte Vorschlage fur die Woche. Zieh ein Gericht in einen Tag im Wochenplaner.</p>
+        <p class="card-copy">Ideen fur diese Woche. Zieh ein Gericht oder frag Nummer12 direkt.</p>
       </div>
       <div class="meal-stats">
         ${finder.stats?.topThisYear?.length
@@ -781,13 +803,24 @@ function renderChatPanel(persona) {
   const details = PERSONA_DETAILS[persona] || PERSONA_DETAILS.family;
   const fragment = el.chatTemplate.content.cloneNode(true);
   const panel = fragment.querySelector(".chat-panel");
+  const head = panel.querySelector(".panel-head");
   const title = panel.querySelector(".chat-title");
   const log = panel.querySelector(".chat-log");
   const form = panel.querySelector(".chat-form");
   const textarea = form.querySelector("textarea");
   const submitButton = form.querySelector("button[type='submit']");
-  title.textContent = persona === "family" ? "Familienchat" : `${details.name} & Nummer12`;
-  textarea.placeholder = persona === "family" ? "Frag Nummer12 nach Woche, Essen oder Zuhause..." : `Schreib an Nummer12 als ${details.name}...`;
+  title.textContent = persona === "family" ? "Mit Nummer12 sprechen" : `${details.name} spricht mit Nummer12`;
+  textarea.placeholder = persona === "family" ? "Sag Nummer12, was jetzt wichtig ist..." : `${details.name}, sag Nummer12 was du brauchst...`;
+  head.innerHTML = `
+    <div class="chat-panel-head">
+      ${renderAvatar("nummer12", { size: "chat", label: "Nummer12" })}
+      <div>
+        <p class="eyebrow">Nummer12</p>
+        <h3 class="chat-title">${escapeHtml(title.textContent)}</h3>
+        <p class="card-copy">Das ist die zentrale Interaktion. Von hier aus ordnet Nummer12 Termine, Bilder und Erinnerungen.</p>
+      </div>
+    </div>
+  `;
 
   if (SpeechRecognitionCtor) {
     const micButton = document.createElement("button");
@@ -896,19 +929,19 @@ function renderDailyImageCard(persona, title = "Bild des Tages", options = {}) {
         <div>
           <p class="eyebrow">Bild des Tages</p>
           <h3>${escapeHtml(title)}</h3>
-          <p class="card-copy">Baut auf Jahreszeit, Terminen und personlichen Bildern auf.</p>
+          <p class="card-copy">Heute sichtbar gemacht von Nummer12.</p>
         </div>
       </div>
       <div class="photo-stage daily-image-frame">
         ${item?.url ? `<img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.prompt || title)}" loading="lazy" />` : '<div class="empty-state">Noch kein Tagesbild geladen.</div>'}
       </div>
-      <p class="small-line">${escapeHtml(item?.reused ? "Heute bereits erzeugt" : item?.prompt || "Das Bild wird fur diesen Bereich automatisch gepflegt.")}</p>
+      <p class="small-line">${escapeHtml(item?.reused ? "Heute bereits erzeugt" : item?.prompt || "Baut auf Erinnerungen, Jahreszeit und Bildern auf.")}</p>
       <div class="image-actions">
         <label class="camera-action">
           <span>Foto hinzufugen</span>
           <input type="file" accept="image/*" capture="environment" />
         </label>
-        <span class="small-line">Bildwunsche bitte direkt im Chat an Nummer12.</span>
+        <span class="small-line">Bildwunsche laufen uber den Chat.</span>
       </div>
     </section>
   `);
@@ -963,7 +996,7 @@ function renderSchedulePanel(personId, options = {}) {
   });
 
   return createNodeFromHtml(`
-    <section class="panel">
+    <section class="panel pulse-panel">
       <div class="panel-head">
         <div>
           <p class="eyebrow">${personId === "nina" ? "Kalender" : personId === "martin" ? "Woche" : "Schule & Termine"}</p>
@@ -1018,8 +1051,8 @@ function buildFamilyPresence() {
   const noDinnerPlan = Object.keys(state.mealAssignments || {}).length < 3;
   if (nextEvent) {
     return {
-      title: `${nextEvent.summary || "Etwas"} steht als Nächstes an`,
-      body: `Ich halte die Woche im Blick. Der nächste relevante Termin ist ${new Date(nextEvent.start?.dateTime || nextEvent.start?.date || Date.now()).toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "long" })}${formatEventTime(nextEvent) !== "Ganztag" ? ` um ${formatEventTime(nextEvent)}` : ""}.`,
+      title: `${nextEvent.summary || "Etwas"} ist als Nächstes wichtig`,
+      body: "Ich halte die Familie zusammen und ziehe gerade das Nächste nach vorn.",
       chips: [
         `${upcomingEventsForPersona("family", 6).length} kommende Termine`,
         pendingTasks.length ? `${pendingTasks.length} offene Aufgaben` : "keine offenen Aufgaben",
@@ -1029,7 +1062,7 @@ function buildFamilyPresence() {
   }
   return {
     title: "Ich halte das Zuhause im Takt",
-    body: "Sprich mit mir, wenn ich Termine eintragen, Bilder erzeugen, Erinnerungen ableiten oder etwas fuer die Familie ordnen soll.",
+    body: "Sag mir, was wichtig wird. Ich ordne es fur die Familie ein.",
     chips: [
       `${pendingTasks.length} offene Aufgaben`,
       noDinnerPlan ? "Abendessen noch offen" : "Woche vorbereitet",
@@ -1044,7 +1077,7 @@ function buildPersonPresence(personId) {
   if (nextEvent) {
     return {
       title: `${details.name}: als Nächstes ${nextEvent.summary || "ein Termin"}`,
-      body: `Nummer12 sieht fuer ${details.name} gerade vor allem den naechsten wichtigen Schritt und haelt den Rest im Hintergrund zusammen.`,
+      body: "Ich halte das Relevante sichtbar und den Rest ruhig im Hintergrund.",
       chips: [
         `${upcomingEventsForPersona(personId, 6).length} relevante Termine`,
         personId === "olivia" || personId === "yuna" || personId === "selma" ? "Stundenplan aktiv" : "persoenlicher Fokus",
@@ -1054,7 +1087,7 @@ function buildPersonPresence(personId) {
   }
   return {
     title: `${details.name}: ruhiger Modus`,
-    body: `Gerade ist nichts Dringendes eingetragen. Der Chat ist die schnellste Art, Nummer12 zu sagen, was jetzt wichtig wird.`,
+    body: "Gerade ist nichts Dringendes vorne. Sag Nummer12 direkt, was jetzt wichtig wird.",
     chips: [
       personId === "olivia" || personId === "yuna" || personId === "selma" ? "Stundenplan aktiv" : "kein unmittelbarer Termin",
       state.dailyImages[personId] ? "Bild des Tages bereit" : "Bild im Aufbau",
@@ -1065,17 +1098,34 @@ function buildPersonPresence(personId) {
 
 function renderPresenceHero(persona = "family") {
   const presence = persona === "family" ? buildFamilyPresence() : buildPersonPresence(persona);
+  const details = PERSONA_DETAILS[persona] || PERSONA_DETAILS.family;
+  const nextItems = upcomingEventsForPersona(persona === "family" ? "family" : persona, persona === "family" ? 3 : 2);
   return createNodeFromHtml(`
     <section class="panel presence-hero-panel">
-      <div class="panel-head tight">
-        <div>
-          <p class="eyebrow">${persona === "family" ? "Nummer12 im Haus" : "Nummer12 fur " + escapeHtml((PERSONA_DETAILS[persona] || {}).name || persona)}</p>
+      <div class="presence-hero-grid">
+        <div class="presence-avatar-column">
+          ${renderAvatar(persona === "family" ? "nummer12" : persona, { size: "hero", label: persona === "family" ? "Nummer12" : details.name })}
+        </div>
+        <div class="presence-copy-column">
+          <p class="eyebrow">${persona === "family" ? "Nummer12 im Haus" : escapeHtml(details.name)}</p>
           <h2 class="presence-title">${escapeHtml(presence.title)}</h2>
           <p class="card-copy">${escapeHtml(presence.body)}</p>
+          <div class="presence-chip-row">
+            ${(presence.chips || []).map((chip) => `<span class="presence-chip">${escapeHtml(chip)}</span>`).join("")}
+          </div>
         </div>
-      </div>
-      <div class="presence-chip-row">
-        ${(presence.chips || []).map((chip) => `<span class="presence-chip">${escapeHtml(chip)}</span>`).join("")}
+        <div class="presence-now-column">
+          <p class="eyebrow">Jetzt im Blick</p>
+          <div class="presence-note-list">
+            ${nextItems.length ? nextItems.map((event) => `<article class="presence-note">
+              <div class="presence-note-title">${escapeHtml(event.summary || "Ohne Titel")}</div>
+              <p class="event-meta">${escapeHtml(new Date(event.start?.dateTime || event.start?.date || Date.now()).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" }))}${formatEventTime(event) !== "Ganztag" ? ` · ${escapeHtml(formatEventTime(event))}` : ""}</p>
+            </article>`).join("") : `<article class="presence-note">
+              <div class="presence-note-title">Keine lauten Signale</div>
+              <p class="event-meta">Nummer12 wartet auf den nächsten Impuls.</p>
+            </article>`}
+          </div>
+        </div>
       </div>
     </section>
   `);
@@ -1101,8 +1151,8 @@ function renderFamilyStream() {
     <section class="panel">
       <div class="panel-head tight">
         <div>
-          <p class="eyebrow">Kontextstream</p>
-          <h3>Was Nummer12 gerade fuer wichtig haelt</h3>
+          <p class="eyebrow">House Pulse</p>
+          <h3>Was gerade vorne liegt</h3>
         </div>
       </div>
       <div class="stream-list">
@@ -1127,10 +1177,10 @@ function renderPersonStream(personId) {
     meta: `${new Date(event.start?.dateTime || event.start?.date || Date.now()).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" })} · ${formatEventTime(event)}`
   }));
   return createNodeFromHtml(`
-    <section class="panel">
+    <section class="panel pulse-panel">
       <div class="panel-head tight">
         <div>
-          <p class="eyebrow">Stream</p>
+          <p class="eyebrow">Relevant</p>
           <h3>${escapeHtml(details.name)} im Blick</h3>
         </div>
       </div>
@@ -1307,7 +1357,6 @@ function renderTimetablePanel(personId, options = {}) {
           </div>`;
         }).join("")}
       </div>
-      <p class="small-line">Aenderungen sollen spaeter direkt uber Nummer12 erfolgen, nicht uber Pflegeformulare.</p>
     </section>
   `);
 
@@ -1319,29 +1368,27 @@ function renderHome() {
   home.className = "view-stack";
   home.innerHTML = `
     <section class="presence-layout" id="family-presence-hero-slot"></section>
-    <section class="presence-layout">
-      <section class="panel board-panel main-planner-panel">
-        <div class="board-header">
-          <div class="board-title-wrap">
-            <h2 class="board-title">Wochenplaner</h2>
-            <p class="board-theme">${escapeHtml(generateWeekHeadline())}</p>
-            <p class="card-copy">Die Woche bleibt sichtbar, aber Nummer12 fuehrt durch Relevanz statt durch Widgets.</p>
-          </div>
+    <section class="presence-chat-shell" id="home-chat-slot"></section>
+    <section class="panel board-panel main-planner-panel">
+      <div class="board-header">
+        <div class="board-title-wrap">
+          <h2 class="board-title">Woche</h2>
+          <p class="board-theme">${escapeHtml(generateWeekHeadline())}</p>
+          <p class="card-copy">Kalender, Rhythmus und das, was diese Woche traegt.</p>
         </div>
-        ${renderWeekPlanner(false)}
-      </section>
+      </div>
+      ${renderWeekPlanner(false)}
+    </section>
+    <section class="home-ambient-grid">
+      <div id="home-meal-slot"></div>
       <div id="home-daily-image-slot"></div>
     </section>
-    <section class="presence-chat-shell" id="home-chat-slot"></section>
-    <section class="presence-layout">
-      <div id="home-stream-slot"></div>
-      <div id="home-meal-slot"></div>
-    </section>`;
+    <section id="home-stream-slot"></section>`;
 
   home.querySelector("#family-presence-hero-slot").replaceWith(renderPresenceHero("family"));
   home.querySelector("#home-daily-image-slot").replaceWith(renderDailyImageCard("family", "Familienbild des Tages", { compact: true }));
-  home.querySelector("#home-stream-slot").replaceWith(renderFamilyStream());
   home.querySelector("#home-meal-slot").replaceWith(renderMealFinderPanel());
+  home.querySelector("#home-stream-slot").replaceWith(renderFamilyStream());
   const familyChat = renderChatPanel("family");
   familyChat.classList.add("home-chat-panel", "presence-chat-panel");
   home.querySelector("#home-chat-slot").replaceWith(familyChat);
@@ -1485,21 +1532,21 @@ function renderPersonPage(personId) {
   const isSchoolChild = personId === "olivia" || personId === "yuna" || personId === "selma";
   root.querySelector("#person-presence-slot").replaceWith(renderPresenceHero(personId));
 
-  if (isSchoolChild) {
-    const timetableRow = createNodeFromHtml(`<section class="presence-layout"></section>`);
-    timetableRow.append(renderTimetablePanel(personId, { title: personId === "selma" ? "Kindergartenrhythmus" : "Stundenplan" }));
-    timetableRow.append(renderPersonStream(personId));
-    mainStack.append(timetableRow);
-  } else {
-    mainStack.append(renderPersonStream(personId));
-  }
-
   const interactionRow = createNodeFromHtml(`<section class="interaction-split"></section>`);
   const chatPanel = renderChatPanel(personId);
   chatPanel.classList.add("home-chat-panel", "presence-chat-panel");
   interactionRow.append(chatPanel);
   interactionRow.append(renderDailyImageCard(personId, `${details.name}s Bild des Tages`, { compact: true }));
   mainStack.append(interactionRow);
+
+  if (isSchoolChild) {
+    const timetableRow = createNodeFromHtml(`<section class="presence-layout"></section>`);
+    timetableRow.append(renderTimetablePanel(personId, { title: personId === "selma" ? "Kindergartenrhythmus" : "Stundenplan" }));
+    timetableRow.append(renderUpcomingEventsPanel(personId, { title: "Als Nächstes", limit: 5 }));
+    mainStack.append(timetableRow);
+  } else {
+    mainStack.append(renderUpcomingEventsPanel(personId, { title: "Als Nächstes", limit: 6 }));
+  }
   return root;
 }
 
@@ -1507,6 +1554,12 @@ function renderView() {
   renderNav();
   el.viewRoot.innerHTML = "";
   const page = state.route === "home" ? renderHome() : state.route === "calendar" ? renderCalendarPage() : state.route === "control" ? renderControlPage() : state.route === "media" ? renderMediaPage() : renderPersonPage(state.route);
+  page.classList.add(`route-${state.route}`);
+  document.body.classList.add("pixel-ui-active");
+  document.body.classList.toggle("home-route-active", state.route === "home");
+  ["route-home", "route-calendar", "route-control", "route-media", "route-nina", "route-martin", "route-olivia", "route-yuna", "route-selma"].forEach((name) => {
+    document.body.classList.toggle(name, name === `route-${state.route}`);
+  });
   el.viewRoot.append(page);
 }
 
