@@ -380,16 +380,9 @@ function renderNav() {
 
 function renderWeekPlanner(compact = false) {
   const groupedEvents = eventsByDay();
-  const suggestionsPool = [
-    ...(state.mealFinder?.favorites || []),
-    ...(state.mealFinder?.todaySuggestions || []),
-    ...(state.mealFinder?.quickOptions || [])
-  ];
   return `<div class="${compact ? "week-grid week-grid-home" : "planner-grid"}">${state.days.map((day, index) => {
     const key = isoDate(day);
     const dayEvents = (groupedEvents.get(key) || []).slice().sort((a, b) => new Date(a.start?.dateTime || a.start?.date || 0) - new Date(b.start?.dateTime || b.start?.date || 0));
-    const assigned = state.mealAssignments[key] || null;
-    const mealOptions = suggestionsPool.filter((entry, idx, arr) => arr.findIndex((item) => item.title === entry.title) === idx).slice(0, 6);
     return `
       <article class="day-card ${index === 0 ? "today" : ""}" data-day-card="${key}">
         <div class="day-head">
@@ -408,10 +401,6 @@ function renderWeekPlanner(compact = false) {
             </div>`;
           }).join("") : '<div class="empty-state thin">Keine Termine</div>'}
         </div>
-        <div class="meal-zone ${assigned ? "has-meal" : ""}" data-meal-drop="${key}">
-          ${assigned ? `<div class="meal-assigned"><div class="meal-title">${escapeHtml(assigned.title)}</div><p class="event-meta">${escapeHtml(assigned.notes || "")}</p></div>` : '<div class="meal-placeholder">Essen fur diesen Tag</div>'}
-        </div>
-        ${compact ? "" : `<div class="day-meal-mini">${mealOptions.slice(0, 2).map((meal, mealIndex) => `<button class="meal-chip compact-chip" type="button" draggable="true" data-day="${key}" data-meal-index="${mealIndex}" data-meal-title="${escapeHtml(meal.title)}" data-meal-notes="${escapeHtml(meal.notes || "")}">${escapeHtml(meal.title)}</button>`).join("")}</div>`}
       </article>`;
   }).join("")}</div>`;
 }
@@ -601,7 +590,7 @@ function renderMealFinderPanel() {
     ...finder.favorites || [],
     ...finder.quickOptions || [],
     ...finder.tryAgain || []
-  ].filter((meal, index, list) => list.findIndex((item) => item.title === meal.title) === index).slice(0, 10);
+  ].filter((meal, index, list) => list.findIndex((item) => item.title === meal.title) === index).slice(0, 16);
 
   const section = document.createElement("section");
   section.className = "panel meal-finder-panel";
@@ -618,9 +607,13 @@ function renderMealFinderPanel() {
           : `<span>Vorschlage wechseln laufend</span>`}
       </div>
     </div>
-    <div class="day-meal-mini">
+    <div class="meal-finder-grid compact-meal-grid inspiration-grid">
       ${suggestions.length ? suggestions.map((meal) => `
-        <button class="meal-chip compact-chip meal-assign-chip" type="button" draggable="true" data-meal-title="${escapeHtml(meal.title)}" data-meal-notes="${escapeHtml(meal.notes || "")}">${escapeHtml(meal.title)}</button>
+        <article class="meal-finder-card inspiration-card">
+          <div class="meal-title">${escapeHtml(meal.title)}</div>
+          <p class="event-meta">${escapeHtml(meal.notes || meal.tags?.join(", ") || "Idee fur diese Woche")}</p>
+          <button class="meal-chip compact-chip meal-assign-chip" type="button" draggable="true" data-meal-title="${escapeHtml(meal.title)}" data-meal-notes="${escapeHtml(meal.notes || "")}">${escapeHtml(meal.title)}</button>
+        </article>
       `).join("") : '<div class="empty-state thin">Noch keine Vorschlage</div>'}
     </div>`;
 
@@ -894,68 +887,67 @@ function renderChatPanel(persona) {
   return panel;
 }
 
-function bindMealInteractions(root) {
-  root.querySelectorAll(".meal-chip").forEach((chip) => {
-    if (!chip.dataset.mealTitle && !chip.dataset.day) return;
-    if (!chip.dataset.boundDrag) {
-      chip.dataset.boundDrag = "true";
-      chip.addEventListener("dragstart", (event) => {
-        const payload = chip.dataset.mealTitle
-          ? { title: chip.dataset.mealTitle, notes: chip.dataset.mealNotes || "" }
-          : { title: chip.textContent.trim(), notes: "" };
-        event.dataTransfer.setData("application/json", JSON.stringify(payload));
-        chip.classList.add("dragging");
-      });
-      chip.addEventListener("dragend", () => chip.classList.remove("dragging"));
-    }
-  });
-  root.querySelectorAll("[data-meal-drop]").forEach((zone) => {
-    zone.addEventListener("dragover", (event) => { event.preventDefault(); zone.classList.add("drag-over"); });
-    zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
-    zone.addEventListener("drop", (event) => {
-      event.preventDefault();
-      zone.classList.remove("drag-over");
-      try {
-        const payload = JSON.parse(event.dataTransfer.getData("application/json"));
-        if (!payload?.title) return;
-        assignMeal(zone.dataset.mealDrop, { title: payload.title, notes: payload.notes || "" });
-        renderView();
-      } catch {
-        // ignore malformed payload
-      }
-    });
-    zone.addEventListener("click", () => {
-      if (!state.mealAssignments[zone.dataset.mealDrop]) return;
-      delete state.mealAssignments[zone.dataset.mealDrop];
-      persistMealAssignments();
-      renderView();
-    });
-  });
-}
-
-function renderDailyImageCard(persona, title = "Bild des Tages") {
+function renderDailyImageCard(persona, title = "Bild des Tages", options = {}) {
   const item = state.dailyImages[persona] || null;
-  return createNodeFromHtml(`
-    <section class="panel ideas-panel daily-image-panel">
+  const compact = Boolean(options.compact);
+  const card = createNodeFromHtml(`
+    <section class="panel ideas-panel daily-image-panel ${compact ? "compact" : ""}">
       <div class="panel-head tight">
         <div>
           <p class="eyebrow">Bild des Tages</p>
           <h3>${escapeHtml(title)}</h3>
-          <p class="card-copy">Wird automatisch aus Jahreszeit, Terminen und vorhandenen Familienbildern aufgebaut.</p>
+          <p class="card-copy">Baut auf Jahreszeit, Terminen und personlichen Bildern auf.</p>
         </div>
       </div>
       <div class="photo-stage daily-image-frame">
         ${item?.url ? `<img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.prompt || title)}" loading="lazy" />` : '<div class="empty-state">Noch kein Tagesbild geladen.</div>'}
       </div>
       <p class="small-line">${escapeHtml(item?.reused ? "Heute bereits erzeugt" : item?.prompt || "Das Bild wird fur diesen Bereich automatisch gepflegt.")}</p>
+      <div class="image-actions">
+        <label class="camera-action">
+          <span>Foto hinzufugen</span>
+          <input type="file" accept="image/*" capture="environment" />
+        </label>
+        <span class="small-line">Bildwunsche bitte direkt im Chat an Nummer12.</span>
+      </div>
     </section>
   `);
+
+  const uploadInput = card.querySelector("input[type='file']");
+
+  uploadInput.addEventListener("change", async () => {
+    const file = uploadInput.files?.[0];
+    if (!file) return;
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("Bild konnte nicht gelesen werden"));
+      reader.readAsDataURL(file);
+    });
+    try {
+      await jsonFetch("/api/images/upload", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ persona, filename: file.name, dataUrl, caption: "" })
+      });
+      const daily = await jsonFetch(`/api/images/daily?persona=${encodeURIComponent(persona)}`).catch(() => ({ item: null }));
+      if (daily.item) state.dailyImages[persona] = daily.item;
+      renderView();
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      uploadInput.value = "";
+    }
+  });
+
+  return card;
 }
 
 function renderSchedulePanel(personId, options = {}) {
   const title = options.title || "Diese Woche";
   const emptyText = options.emptyText || "Noch keine Termine erkannt.";
   const compact = Boolean(options.compact);
+  const hideEmpty = Boolean(options.hideEmpty);
   const grouped = new Map();
   for (const event of eventsForPersona(personId)) {
     const raw = event.start?.dateTime || event.start?.date;
@@ -965,6 +957,10 @@ function renderSchedulePanel(personId, options = {}) {
     list.push(event);
     grouped.set(key, list);
   }
+  const visibleDays = state.days.filter((day) => {
+    const key = isoDate(day);
+    return !hideEmpty || (grouped.get(key) || []).length;
+  });
 
   return createNodeFromHtml(`
     <section class="panel">
@@ -975,7 +971,7 @@ function renderSchedulePanel(personId, options = {}) {
         </div>
       </div>
       <div class="module-stack">
-        ${state.days.map((day) => {
+        ${visibleDays.length ? visibleDays.map((day) => {
           const key = isoDate(day);
           const items = (grouped.get(key) || []).slice().sort((a, b) => new Date(a.start?.dateTime || a.start?.date || 0) - new Date(b.start?.dateTime || b.start?.date || 0));
           return `<div class="module-card">
@@ -984,10 +980,238 @@ function renderSchedulePanel(personId, options = {}) {
               ? items.slice(0, compact ? 2 : 4).map((event) => `<p class="muted">${escapeHtml(formatEventTime(event))} · ${escapeHtml(event.summary || "Ohne Titel")}</p>`).join("")
               : `<p class="muted">${escapeHtml(emptyText)}</p>`}
           </div>`;
-        }).join("")}
+        }).join("") : `<div class="empty-state thin">${escapeHtml(emptyText)}</div>`}
       </div>
     </section>
   `);
+}
+
+function renderUpcomingEventsPanel(personId, options = {}) {
+  const title = options.title || "Wichtige Termine";
+  const emptyText = options.emptyText || "Keine wichtigen anstehenden Termine erkannt.";
+  const items = upcomingEventsForPersona(personId, options.limit || 6);
+  return createNodeFromHtml(`
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">${personId === "selma" ? "Wichtig" : "Upcoming"}</p>
+          <h3>${escapeHtml(title)}</h3>
+        </div>
+      </div>
+      <div class="module-stack">
+        ${items.length ? items.map((event) => `<div class="module-card">
+          <div class="person-name">${escapeHtml(event.summary || "Ohne Titel")}</div>
+          <p class="muted">${escapeHtml(new Date(event.start?.dateTime || event.start?.date || Date.now()).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" }))} · ${escapeHtml(formatEventTime(event))}</p>
+        </div>`).join("") : `<div class="empty-state thin">${escapeHtml(emptyText)}</div>`}
+      </div>
+    </section>
+  `);
+}
+
+function openTasks(limit = 6) {
+  return (state.tasks || []).filter((item) => !item.done).slice(0, limit);
+}
+
+function buildFamilyPresence() {
+  const nextEvent = upcomingEventsForPersona("family", 1)[0] || null;
+  const pendingTasks = openTasks(3);
+  const noDinnerPlan = Object.keys(state.mealAssignments || {}).length < 3;
+  if (nextEvent) {
+    return {
+      title: `${nextEvent.summary || "Etwas"} steht als Nächstes an`,
+      body: `Ich halte die Woche im Blick. Der nächste relevante Termin ist ${new Date(nextEvent.start?.dateTime || nextEvent.start?.date || Date.now()).toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "long" })}${formatEventTime(nextEvent) !== "Ganztag" ? ` um ${formatEventTime(nextEvent)}` : ""}.`,
+      chips: [
+        `${upcomingEventsForPersona("family", 6).length} kommende Termine`,
+        pendingTasks.length ? `${pendingTasks.length} offene Aufgaben` : "keine offenen Aufgaben",
+        noDinnerPlan ? "Abendessen noch offen" : "Essen teils geplant"
+      ]
+    };
+  }
+  return {
+    title: "Ich halte das Zuhause im Takt",
+    body: "Sprich mit mir, wenn ich Termine eintragen, Bilder erzeugen, Erinnerungen ableiten oder etwas fuer die Familie ordnen soll.",
+    chips: [
+      `${pendingTasks.length} offene Aufgaben`,
+      noDinnerPlan ? "Abendessen noch offen" : "Woche vorbereitet",
+      state.calendarConnected ? "Kalender verbunden" : "Kalender getrennt"
+    ]
+  };
+}
+
+function buildPersonPresence(personId) {
+  const details = PERSONA_DETAILS[personId] || PERSONA_DETAILS.family;
+  const nextEvent = upcomingEventsForPersona(personId, 1)[0] || null;
+  if (nextEvent) {
+    return {
+      title: `${details.name}: als Nächstes ${nextEvent.summary || "ein Termin"}`,
+      body: `Nummer12 sieht fuer ${details.name} gerade vor allem den naechsten wichtigen Schritt und haelt den Rest im Hintergrund zusammen.`,
+      chips: [
+        `${upcomingEventsForPersona(personId, 6).length} relevante Termine`,
+        personId === "olivia" || personId === "yuna" || personId === "selma" ? "Stundenplan aktiv" : "persoenlicher Fokus",
+        state.dailyImages[personId] ? "Bild des Tages bereit" : "Bild im Aufbau"
+      ]
+    };
+  }
+  return {
+    title: `${details.name}: ruhiger Modus`,
+    body: `Gerade ist nichts Dringendes eingetragen. Der Chat ist die schnellste Art, Nummer12 zu sagen, was jetzt wichtig wird.`,
+    chips: [
+      personId === "olivia" || personId === "yuna" || personId === "selma" ? "Stundenplan aktiv" : "kein unmittelbarer Termin",
+      state.dailyImages[personId] ? "Bild des Tages bereit" : "Bild im Aufbau",
+      "Chat im Zentrum"
+    ]
+  };
+}
+
+function renderPresenceHero(persona = "family") {
+  const presence = persona === "family" ? buildFamilyPresence() : buildPersonPresence(persona);
+  return createNodeFromHtml(`
+    <section class="panel presence-hero-panel">
+      <div class="panel-head tight">
+        <div>
+          <p class="eyebrow">${persona === "family" ? "Nummer12 im Haus" : "Nummer12 fur " + escapeHtml((PERSONA_DETAILS[persona] || {}).name || persona)}</p>
+          <h2 class="presence-title">${escapeHtml(presence.title)}</h2>
+          <p class="card-copy">${escapeHtml(presence.body)}</p>
+        </div>
+      </div>
+      <div class="presence-chip-row">
+        ${(presence.chips || []).map((chip) => `<span class="presence-chip">${escapeHtml(chip)}</span>`).join("")}
+      </div>
+    </section>
+  `);
+}
+
+function renderFamilyStream() {
+  const nextEvents = upcomingEventsForPersona("family", 4);
+  const tasks = openTasks(4);
+  const items = [
+    ...nextEvents.map((event) => ({
+      type: "Termin",
+      title: event.summary || "Ohne Titel",
+      meta: `${new Date(event.start?.dateTime || event.start?.date || Date.now()).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" })} · ${formatEventTime(event)}`
+    })),
+    ...tasks.map((task) => ({
+      type: "Offen",
+      title: task.text,
+      meta: "Familienaufgabe"
+    }))
+  ].slice(0, 8);
+
+  return createNodeFromHtml(`
+    <section class="panel">
+      <div class="panel-head tight">
+        <div>
+          <p class="eyebrow">Kontextstream</p>
+          <h3>Was Nummer12 gerade fuer wichtig haelt</h3>
+        </div>
+      </div>
+      <div class="stream-list">
+        ${items.length ? items.map((item) => `<article class="stream-item">
+          <div class="stream-type">${escapeHtml(item.type)}</div>
+          <div class="stream-body">
+            <div class="stream-title">${escapeHtml(item.title)}</div>
+            <p class="event-meta">${escapeHtml(item.meta)}</p>
+          </div>
+        </article>`).join("") : '<div class="empty-state thin">Noch keine aktuellen Dinge im Stream.</div>'}
+      </div>
+    </section>
+  `);
+}
+
+function renderPersonStream(personId) {
+  const nextEvents = upcomingEventsForPersona(personId, 5);
+  const details = PERSONA_DETAILS[personId] || PERSONA_DETAILS.family;
+  const items = nextEvents.map((event) => ({
+    type: "Als Nächstes",
+    title: event.summary || "Ohne Titel",
+    meta: `${new Date(event.start?.dateTime || event.start?.date || Date.now()).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" })} · ${formatEventTime(event)}`
+  }));
+  return createNodeFromHtml(`
+    <section class="panel">
+      <div class="panel-head tight">
+        <div>
+          <p class="eyebrow">Stream</p>
+          <h3>${escapeHtml(details.name)} im Blick</h3>
+        </div>
+      </div>
+      <div class="stream-list">
+        ${items.length ? items.map((item) => `<article class="stream-item">
+          <div class="stream-type">${escapeHtml(item.type)}</div>
+          <div class="stream-body">
+            <div class="stream-title">${escapeHtml(item.title)}</div>
+            <p class="event-meta">${escapeHtml(item.meta)}</p>
+          </div>
+        </article>`).join("") : '<div class="empty-state thin">Noch nichts, was Nummer12 gerade nach vorne zieht.</div>'}
+      </div>
+    </section>
+  `);
+}
+
+function renderDropboxPanel(personId) {
+  const panel = createNodeFromHtml(`
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Persoenlicher Eingang</p>
+          <h3>Einladung, Bild oder Datei ablegen</h3>
+          <p class="card-copy">Alles landet im persoenlichen Bereich und kann spaeter von Nummer12 ausgewertet werden.</p>
+        </div>
+      </div>
+      <form class="profile-form" data-dropbox-form="${escapeHtml(personId)}">
+        <label class="profile-field">
+          <span>Titel</span>
+          <input type="text" name="title" placeholder="z. B. Einladung Geburtstag Maya" />
+        </label>
+        <label class="profile-field">
+          <span>Notiz</span>
+          <textarea name="text" rows="3" placeholder="Kurze Info fur Nummer12..."></textarea>
+        </label>
+        <label class="camera-action">
+          <span>Datei oder Bild hinzufugen</span>
+          <input type="file" name="file" />
+        </label>
+        <div class="profile-actions">
+          <button class="ghost-button" type="submit">Im persoenlichen Eingang ablegen</button>
+        </div>
+      </form>
+    </section>
+  `);
+
+  const form = panel.querySelector(`[data-dropbox-form="${personId}"]`);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(form);
+    const file = form.querySelector("input[name='file']").files?.[0] || null;
+    let dataUrl = "";
+    if (file) {
+      dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("Datei konnte nicht gelesen werden"));
+        reader.readAsDataURL(file);
+      });
+    }
+    try {
+      await jsonFetch("/api/dropbox", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          target: personId,
+          title: formData.get("title"),
+          text: formData.get("text"),
+          filename: file?.name || "",
+          dataUrl,
+          source: "person-page-dropbox"
+        })
+      });
+      form.reset();
+      alert("Im persoenlichen Eingang gespeichert.");
+    } catch (error) {
+      alert(error.message);
+    }
+  });
+
+  return panel;
 }
 
 function renderAcademicPanel(personId) {
@@ -1083,145 +1307,44 @@ function renderTimetablePanel(personId, options = {}) {
           </div>`;
         }).join("")}
       </div>
-      <form class="profile-form" data-schedule-form="${escapeHtml(personId)}">
-        <label class="profile-field">
-          <span>${personId === "selma" ? "Wochenrhythmus bearbeiten" : "Stundenplan pflegen"}</span>
-          <textarea name="scheduleText" rows="10" placeholder="Montag|1|08:00|08:45|Mathe|Raum 3\nMontag|2|08:50|09:35|Deutsch|\nDienstag|1|08:00|08:45|Sachkunde|">${escapeHtml(["monday", "tuesday", "wednesday", "thursday", "friday"].flatMap((dayKey) => (plan.days?.[dayKey] || []).map((slot) => `${dayKey}|${slot.slot}|${slot.start || ""}|${slot.end || ""}|${slot.subject || ""}|${slot.note || ""}`)).join("\n"))}</textarea>
-        </label>
-        <div class="profile-actions">
-          <button class="ghost-button" type="submit">${personId === "selma" ? "Wochenrhythmus speichern" : "Stundenplan speichern"}</button>
-        </div>
-      </form>
+      <p class="small-line">Aenderungen sollen spaeter direkt uber Nummer12 erfolgen, nicht uber Pflegeformulare.</p>
     </section>
   `);
-
-  const form = section.querySelector(`[data-schedule-form="${personId}"]`);
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const formData = new FormData(form);
-    const raw = String(formData.get("scheduleText") || "");
-    const days = { monday: [], tuesday: [], wednesday: [], thursday: [], friday: [] };
-    raw.split("\n").map((line) => line.trim()).filter(Boolean).forEach((line) => {
-      const [dayKey, slot, start, end, subject, note] = line.split("|").map((part) => String(part || "").trim());
-      if (!days[dayKey]) return;
-      days[dayKey].push({
-        slot: Number(slot || days[dayKey].length + 1),
-        start,
-        end,
-        subject,
-        note
-      });
-    });
-    try {
-      const data = await jsonFetch(`/api/schedules/${personId}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          activePlan: "default",
-          plans: {
-            default: {
-              label: personId === "selma" ? "Kindergartenwoche" : "Stundenplan",
-              weekModel: "single",
-              days
-            }
-          }
-        })
-      });
-      state.schedules[personId] = data.schedule || scheduleForPerson(personId);
-      renderView();
-    } catch (error) {
-      alert(error.message);
-    }
-  });
 
   return section;
 }
 
-function renderProfilePanel(personId) {
-  const details = PERSONA_DETAILS[personId] || PERSONA_DETAILS.family;
-  const profile = profileForPerson(personId);
-  const profilePanel = createNodeFromHtml(`
-    <section class="panel">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Steckbrief</p>
-          <h3>${escapeHtml(details.name)} fur Nummer12</h3>
-          <p class="card-copy">Sekundarer Hintergrundkontext: wer die Person ist, was sie mag und was Nummer12 wissen soll.</p>
-        </div>
-      </div>
-      <form class="profile-form" data-profile-form="${escapeHtml(personId)}">
-        <div class="profile-grid">
-          <label class="profile-field"><span>Name</span><input type="text" name="displayName" value="${escapeHtml(profile.displayName || details.name)}" /></label>
-          <label class="profile-field"><span>Alter</span><input type="number" min="0" max="120" name="age" value="${escapeHtml(profile.age === "" ? "" : String(profile.age))}" /></label>
-        </div>
-        <label class="profile-field"><span>Kurzbeschreibung</span><textarea name="summary" rows="3">${escapeHtml(profile.summary || "")}</textarea></label>
-        <label class="profile-field"><span>Interessen</span><input type="text" name="interests" value="${escapeHtml((profile.interests || []).join(", "))}" /></label>
-        <label class="profile-field"><span>Aktuelle Vorlieben</span><input type="text" name="currentFavorites" value="${escapeHtml((profile.currentFavorites || []).join(", "))}" /></label>
-        <label class="profile-field"><span>Aktuelle Themen</span><input type="text" name="currentTopics" value="${escapeHtml((profile.currentTopics || []).join(", "))}" /></label>
-        <label class="profile-field"><span>Hinweise fur Nummer12</span><textarea name="notesForNummer12" rows="4">${escapeHtml((profile.notesForNummer12 || []).join("\n"))}</textarea></label>
-        <div class="profile-actions">
-          <button class="ghost-button" type="submit">Steckbrief speichern</button>
-          <span class="notes-meta">${profile.updatedAt ? `Aktualisiert ${new Date(profile.updatedAt).toLocaleString("de-DE")}` : "Noch nicht angepasst"}</span>
-        </div>
-      </form>
-    </section>
-  `);
-
-  const profileForm = profilePanel.querySelector(`[data-profile-form="${personId}"]`);
-  profileForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const formData = new FormData(profileForm);
-    try {
-      const data = await jsonFetch(`/api/profiles/${personId}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          displayName: formData.get("displayName"),
-          age: formData.get("age"),
-          summary: formData.get("summary"),
-          interests: formData.get("interests"),
-          currentFavorites: formData.get("currentFavorites"),
-          currentTopics: formData.get("currentTopics"),
-          notesForNummer12: formData.get("notesForNummer12")
-        })
-      });
-      state.profiles[personId] = data.profile || profileForPerson(personId);
-      renderView();
-    } catch (error) {
-      alert(error.message);
-    }
-  });
-
-  return profilePanel;
-}
-
 function renderHome() {
-  const weekHeadline = generateWeekHeadline();
   const home = document.createElement("div");
   home.className = "view-stack";
   home.innerHTML = `
-    <section class="panel board-panel main-planner-panel">
-      <div class="board-header">
-        <div class="board-title-wrap">
-          <h2 class="board-title">Wochenplaner</h2>
-          <p class="board-theme">${escapeHtml(weekHeadline)}</p>
-          <p class="card-copy">Die Woche im Zentrum. Essen und Bild des Tages liegen darunter als eigene ruhige Helfer.</p>
+    <section class="presence-layout" id="family-presence-hero-slot"></section>
+    <section class="presence-layout">
+      <section class="panel board-panel main-planner-panel">
+        <div class="board-header">
+          <div class="board-title-wrap">
+            <h2 class="board-title">Wochenplaner</h2>
+            <p class="board-theme">${escapeHtml(generateWeekHeadline())}</p>
+            <p class="card-copy">Die Woche bleibt sichtbar, aber Nummer12 fuehrt durch Relevanz statt durch Widgets.</p>
+          </div>
         </div>
-      </div>
-      ${renderWeekPlanner(false)}
-    </section>
-    <section class="home-split-top">
-      <section class="home-wide-slot" id="home-meal-slot"></section>
+        ${renderWeekPlanner(false)}
+      </section>
       <div id="home-daily-image-slot"></div>
     </section>
-    <section class="home-wide-slot home-chat-slot" id="home-chat-slot"></section>`;
+    <section class="presence-chat-shell" id="home-chat-slot"></section>
+    <section class="presence-layout">
+      <div id="home-stream-slot"></div>
+      <div id="home-meal-slot"></div>
+    </section>`;
 
-  home.querySelector("#home-daily-image-slot").replaceWith(renderDailyImageCard("family", "Familienbild des Tages"));
+  home.querySelector("#family-presence-hero-slot").replaceWith(renderPresenceHero("family"));
+  home.querySelector("#home-daily-image-slot").replaceWith(renderDailyImageCard("family", "Familienbild des Tages", { compact: true }));
+  home.querySelector("#home-stream-slot").replaceWith(renderFamilyStream());
   home.querySelector("#home-meal-slot").replaceWith(renderMealFinderPanel());
   const familyChat = renderChatPanel("family");
-  familyChat.classList.add("home-chat-panel");
+  familyChat.classList.add("home-chat-panel", "presence-chat-panel");
   home.querySelector("#home-chat-slot").replaceWith(familyChat);
-  bindMealInteractions(home);
   return home;
 }
 
@@ -1352,97 +1475,31 @@ function renderAgendaForPerson(personId) {
 
 function renderPersonPage(personId) {
   const details = PERSONA_DETAILS[personId] || PERSONA_DETAILS.family;
-  const profile = profileForPerson(personId);
   const root = document.createElement("div");
   root.className = "view-stack";
   root.innerHTML = `
-    <section class="panel person-hero-card member-palette" style="--member-color:${colorForMember(personId)}">
-      <div class="person-hero"><div class="inline-actions"><div class="person-avatar" style="--member-color:${colorForMember(personId)}">${details.emoji}</div><div><p class="eyebrow">Personliche Startseite</p><h2>${escapeHtml(details.name)}</h2><p class="card-copy">${escapeHtml(details.intro)}</p></div></div><span class="person-tag">${escapeHtml(details.title)}</span></div>
-    </section>
-    <section class="page-grid">
-      <div class="column-stack" id="person-main-stack"></div>
-      <div class="panel-stack" id="person-side-stack"></div>
-    </section>`;
+    <section id="person-presence-slot"></section>
+    <section class="view-stack" id="person-main-stack"></section>`;
 
   const mainStack = root.querySelector("#person-main-stack");
-  const sideStack = root.querySelector("#person-side-stack");
+  const isSchoolChild = personId === "olivia" || personId === "yuna" || personId === "selma";
+  root.querySelector("#person-presence-slot").replaceWith(renderPresenceHero(personId));
 
-  const summaryPanel = createNodeFromHtml(`
-    <section class="panel">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Gerade wichtig</p>
-          <h3>${escapeHtml(details.name)} diese Woche</h3>
-          <p class="card-copy">${escapeHtml(profile.summary || details.intro || "")}</p>
-        </div>
-      </div>
-      <div class="person-grid">
-        <article class="person-card"><div class="module-title">Interessen</div><p class="muted">${escapeHtml((profile.interests || []).join(", ") || details.interests.map((item) => item.title).join(", "))}</p></article>
-        <article class="person-card"><div class="module-title">Aktuelle Vorlieben</div><p class="muted">${escapeHtml((profile.currentFavorites || []).join(", ") || "Noch nichts hinterlegt")}</p></article>
-        <article class="person-card"><div class="module-title">Aktuelle Themen</div><p class="muted">${escapeHtml((profile.currentTopics || []).join(", ") || "Noch nichts hinterlegt")}</p></article>
-      </div>
-    </section>
-  `);
-
-  if (personId === "nina") {
-    mainStack.append(renderSchedulePanel(personId, { title: "Kalender & Termine", emptyText: "Noch keine Termine fur Nina in dieser Woche." }));
-    mainStack.append(summaryPanel);
-  } else if (personId === "martin") {
-    const infoPanel = createNodeFromHtml(`
-      <section class="panel">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">Themenfokus</p>
-            <h3>Informationen & Einordnung</h3>
-            <p class="card-copy">Diese Seite darf sachlicher und informationsorientierter sein als die anderen.</p>
-          </div>
-        </div>
-        <div class="person-grid">
-          ${details.interests.map((item) => `<article class="person-card"><div class="module-title">${escapeHtml(item.title)}</div><p class="muted">${escapeHtml(item.text)}</p></article>`).join("")}
-        </div>
-      </section>
-    `);
-    mainStack.append(infoPanel);
-    mainStack.append(renderSchedulePanel(personId, { title: "Termine & Slots", emptyText: "Gerade keine eigenen Termine erkannt.", compact: true }));
-    mainStack.append(summaryPanel);
-  } else if (personId === "olivia") {
-    mainStack.append(renderTimetablePanel(personId, { title: "Belastbarer Stundenplan" }));
-    mainStack.append(renderSchedulePanel(personId, { title: "Kalender-Overlay & Termine", emptyText: "Noch kein Sondertermin im Kalender." }));
-    mainStack.append(renderAcademicPanel(personId));
-    mainStack.append(summaryPanel);
-  } else if (personId === "yuna") {
-    mainStack.append(renderTimetablePanel(personId, { title: "Belastbarer Stundenplan" }));
-    mainStack.append(renderSchedulePanel(personId, { title: "Kalender-Overlay & Woche", emptyText: "Noch kein Sondertermin im Kalender." }));
-    mainStack.append(summaryPanel);
-    mainStack.append(renderAcademicPanel(personId));
-  } else if (personId === "selma") {
-    const playfulPanel = createNodeFromHtml(`
-      <section class="panel">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">Kindergarten & Spielen</p>
-            <h3>Heute fur Selma</h3>
-            <p class="card-copy">Weniger Text, mehr freundliche Orientierung und kleine Themen fur ihren Tag.</p>
-          </div>
-        </div>
-        <div class="person-grid">
-          <article class="person-card"><div class="module-title">Heute</div><p class="muted">${escapeHtml(upcomingEventsForPersona("selma", 2).map((event) => event.summary).join(", ") || "Spiel, Musik und ein guter Tag.")}</p></article>
-          <article class="person-card"><div class="module-title">Mag gerade</div><p class="muted">${escapeHtml((profile.currentFavorites || profile.interests || []).slice(0, 4).join(", ") || "Malen, Musik, Tanzen")}</p></article>
-          <article class="person-card"><div class="module-title">Fur Nummer12</div><p class="muted">Einfach, spielerisch, mit wenig Leselast.</p></article>
-        </div>
-      </section>
-    `);
-    mainStack.append(playfulPanel);
-    mainStack.append(renderTimetablePanel(personId, { title: "Kindergartenrhythmus" }));
-    mainStack.append(renderSchedulePanel(personId, { title: "Kindergarten & Termine", emptyText: "Noch kein Termin im Kalender erkannt.", compact: true }));
+  if (isSchoolChild) {
+    const timetableRow = createNodeFromHtml(`<section class="presence-layout"></section>`);
+    timetableRow.append(renderTimetablePanel(personId, { title: personId === "selma" ? "Kindergartenrhythmus" : "Stundenplan" }));
+    timetableRow.append(renderPersonStream(personId));
+    mainStack.append(timetableRow);
   } else {
-    mainStack.append(renderSchedulePanel(personId));
-    mainStack.append(summaryPanel);
+    mainStack.append(renderPersonStream(personId));
   }
 
-  sideStack.append(renderDailyImageCard(personId, `${details.name}s Bild des Tages`));
-  sideStack.append(renderChatPanel(personId));
-  sideStack.append(renderProfilePanel(personId));
+  const interactionRow = createNodeFromHtml(`<section class="interaction-split"></section>`);
+  const chatPanel = renderChatPanel(personId);
+  chatPanel.classList.add("home-chat-panel", "presence-chat-panel");
+  interactionRow.append(chatPanel);
+  interactionRow.append(renderDailyImageCard(personId, `${details.name}s Bild des Tages`, { compact: true }));
+  mainStack.append(interactionRow);
   return root;
 }
 

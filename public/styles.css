@@ -175,11 +175,25 @@ h4 { font-size: 0.96rem; }
   gap: 14px;
 }
 
+.presence-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.7fr);
+  gap: 14px;
+  align-items: start;
+}
+
 .home-split-top {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 14px;
   align-items: stretch;
+}
+
+.interaction-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
 }
 
 .home-frame {
@@ -192,6 +206,36 @@ h4 { font-size: 0.96rem; }
 .board-panel {
   padding: 12px 10px 10px;
   background: linear-gradient(180deg, rgba(255, 252, 247, 0.96), rgba(248, 241, 232, 0.94));
+}
+
+.presence-hero-panel {
+  padding: 20px 22px;
+  background:
+    radial-gradient(circle at top right, rgba(255,255,255,0.45), transparent 22%),
+    linear-gradient(135deg, rgba(183, 104, 72, 0.14), rgba(76, 169, 154, 0.12)),
+    rgba(255, 250, 244, 0.96);
+}
+
+.presence-title {
+  font-size: clamp(1.55rem, 2.4vw, 2.5rem);
+  line-height: 1.02;
+}
+
+.presence-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.presence-chip {
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.82);
+  border: 1px solid var(--line);
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--muted);
 }
 
 .board-header {
@@ -236,6 +280,10 @@ h4 { font-size: 0.96rem; }
 
 .home-chat-panel {
   min-height: 200px;
+}
+
+.presence-chat-panel {
+  min-height: 280px;
 }
 
 .side-rail {
@@ -408,32 +456,6 @@ h4 { font-size: 0.96rem; }
   font-size: 0.72rem;
 }
 
-.meal-zone {
-  min-height: 68px;
-  display: grid;
-  align-items: center;
-  background: rgba(247, 241, 232, 0.66);
-}
-
-.meal-zone.drag-over {
-  border-color: rgba(183, 104, 72, 0.46);
-  background: rgba(255, 239, 225, 0.96);
-}
-
-.meal-zone.has-meal {
-  border-style: solid;
-}
-
-.meal-placeholder {
-  color: var(--muted);
-  font-size: 0.76rem;
-}
-
-.meal-assigned {
-  display: grid;
-  gap: 4px;
-}
-
 .meal-chip {
   min-height: 30px;
   padding: 0 10px;
@@ -462,8 +484,13 @@ h4 { font-size: 0.96rem; }
   min-height: 100%;
 }
 
+.daily-image-panel.compact .daily-image-frame,
+.daily-image-panel.compact .daily-image-frame img {
+  min-height: 140px;
+}
+
 .daily-image-frame {
-  min-height: 250px;
+  min-height: 220px;
   overflow: hidden;
   border-radius: 18px;
   border: 1px solid var(--line);
@@ -473,7 +500,7 @@ h4 { font-size: 0.96rem; }
 .daily-image-frame img {
   display: block;
   width: 100%;
-  min-height: 250px;
+  min-height: 220px;
   height: 100%;
   object-fit: cover;
 }
@@ -530,7 +557,51 @@ h4 { font-size: 0.96rem; }
   background: linear-gradient(180deg, rgba(255, 252, 247, 0.96), rgba(246, 239, 230, 0.94));
   padding-top: 12px;
   padding-bottom: 12px;
-  min-height: 340px;
+  min-height: 220px;
+}
+
+.stream-list {
+  display: grid;
+  gap: 10px;
+}
+
+.stream-item {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,0.76);
+}
+
+.stream-type {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.stream-body {
+  display: grid;
+  gap: 4px;
+}
+
+.stream-title {
+  font-weight: 800;
+  font-size: 0.94rem;
+}
+
+.inspiration-grid {
+  align-content: start;
+  height: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.inspiration-card {
+  min-height: 88px;
 }
 
 .meal-finder-grid {
@@ -866,9 +937,8 @@ h4 { font-size: 0.96rem; }
 
 .timetable-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(180px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
-  overflow-x: auto;
   padding-bottom: 4px;
 }
 
@@ -880,7 +950,7 @@ h4 { font-size: 0.96rem; }
   display: grid;
   align-content: start;
   gap: 10px;
-  min-height: 280px;
+  min-height: 220px;
 }
 
 .timetable-day.today {
@@ -1017,7 +1087,7 @@ h4 { font-size: 0.96rem; }
 }
 
 @media (max-width: 1260px) {
-  .home-split-top,
+  .presence-layout,
   .home-frame,
   .home-bottom-grid,
   .page-grid {
@@ -1030,6 +1100,13 @@ h4 { font-size: 0.96rem; }
 
   .month-toolbar {
     justify-items: start;
+  }
+}
+
+@media (max-width: 900px) {
+  .home-split-top,
+  .interaction-split {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1062,7 +1139,7 @@ h4 { font-size: 0.96rem; }
 
   .daily-image-frame,
   .daily-image-frame img {
-    min-height: 280px;
+    min-height: 220px;
   }
 
   .month-weekdays,
@@ -1205,6 +1282,6 @@ h4 { font-size: 0.96rem; }
   }
 
   .timetable-grid {
-    grid-template-columns: repeat(5, minmax(220px, 1fr));
+    grid-template-columns: 1fr;
   }
 }

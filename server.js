@@ -1782,29 +1782,51 @@ app.post("/api/dropbox", (req, res) => {
   const title = String(req.body?.title || "").trim();
   const text = String(req.body?.text || "").trim();
   const source = String(req.body?.source || "ui").trim() || "ui";
+  const filename = String(req.body?.filename || "").trim();
+  const dataUrl = String(req.body?.dataUrl || "");
   const allowedTargets = new Set(["general", "family", ...PERSONAS]);
 
   if (!allowedTargets.has(target)) {
     return res.status(400).json({ ok: false, error: "invalid target" });
   }
 
-  if (!title && !text) {
-    return res.status(400).json({ ok: false, error: "title or text required" });
+  if (!title && !text && !dataUrl) {
+    return res.status(400).json({ ok: false, error: "title, text, or file required" });
   }
 
   const ts = new Date();
-  const slug = `${ts.toISOString().replace(/[:.]/g, "-")}.json`;
+  const stamp = ts.toISOString().replace(/[:.]/g, "-");
+  const slug = `${stamp}.json`;
   const dir = path.join(DROPBOX_ROOT, target);
   ensureDir(dir);
+
+  let attachment = null;
+  if (dataUrl) {
+    try {
+      const decoded = decodeDataUrl(dataUrl);
+      const ext = extensionForMime(decoded.mimeType);
+      const safeName = sanitizeFilename(filename || `dropbox-${target}`) || `dropbox-${target}`;
+      const filePath = path.join(dir, `${stamp}-${safeName}.${ext}`);
+      fs.writeFileSync(filePath, decoded.buffer);
+      attachment = {
+        filename: filename || path.basename(filePath),
+        mimeType: decoded.mimeType,
+        filePath
+      };
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: `invalid attachment: ${error.message}` });
+    }
+  }
 
   const item = {
     id: ts.getTime(),
     target,
-    title: title || "Untitled dropbox item",
+    title: title || filename || "Untitled dropbox item",
     text,
     source,
     status: "new",
     createdAt: ts.toISOString(),
+    attachment,
     suggestedActions: [
       "analyze",
       "extract dates",
